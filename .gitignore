@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Secrets & active local config — never commit (keep the .example templates instead)
+.env
+frontend/env/config.js
+
+# Claude Code local settings
+.claude/
+
+# Logs, temp, OS junk
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db

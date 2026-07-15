@@ -1,0 +1,1431 @@
+{
+  "info": {
+    "name": "CCMS \u2014 Orient Paper & Mill (v2.0)",
+    "description": "Complaint Transaction & SAP Push \u2014 full backend. Run 'Health Check' first to confirm the server is up, then run the 'Full Complaint Lifecycle' folder top-to-bottom (or use Collection Runner) \u2014 each request auto-saves complaintNo/sampleId/visitId into collection variables so you don't have to copy-paste anything.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "complaintNo",
+      "value": ""
+    },
+    {
+      "key": "sampleId",
+      "value": ""
+    },
+    {
+      "key": "visitId",
+      "value": ""
+    },
+    {
+      "key": "invoiceNumber",
+      "value": "90009999"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Authentication (RBAC \u2014 Section 12.3)",
+      "item": [
+        {
+          "name": "Login \u2014 TS Head (Kiran Joshi)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const d = pm.response.json();",
+                  "if (d.token) { pm.collectionVariables.set(\"token\", d.token); pm.test(\"Login OK \u2014 token saved\", () => pm.response.to.have.status(200)); }",
+                  "else { pm.test(\"Login FAILED\", () => false); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"kiran.joshi@orientpaper.com\", \"password\": \"Orient@123\"}"
+            }
+          }
+        },
+        {
+          "name": "Login \u2014 Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const d = pm.response.json();",
+                  "if (d.token) { pm.collectionVariables.set(\"token\", d.token); pm.test(\"Admin login OK\", () => pm.response.to.have.status(200)); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"admin@orientpaper.com\", \"password\": \"Admin@456\"}"
+            }
+          }
+        },
+        {
+          "name": "Who Am I? (GET /auth/me)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/me"
+          }
+        },
+        {
+          "name": "Login \u2014 WRONG password (expect 401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"kiran.joshi@orientpaper.com\", \"password\": \"wrongpassword\"}"
+            }
+          }
+        },
+        {
+          "name": "Access without token (expect 401)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/complaints"
+          }
+        },
+        {
+          "name": "Login \u2014 QC Manager (Neha Singh)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const d = pm.response.json();",
+                  "if (d.token) pm.collectionVariables.set(\"token\", d.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"neha.singh@orientpaper.com\", \"password\": \"Orient@123\"}"
+            }
+          }
+        },
+        {
+          "name": "Login \u2014 Operations Head (Sanjay Patel)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const d = pm.response.json();",
+                  "if (d.token) pm.collectionVariables.set(\"token\", d.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"sanjay.patel@orientpaper.com\", \"password\": \"Orient@123\"}"
+            }
+          }
+        },
+        {
+          "name": "Login \u2014 Marketing Head (Vikram Rao)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const d = pm.response.json();",
+                  "if (d.token) pm.collectionVariables.set(\"token\", d.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"vikram.rao@orientpaper.com\", \"password\": \"Orient@123\"}"
+            }
+          }
+        },
+        {
+          "name": "Login \u2014 Managing Director (Sumedha Iyer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const d = pm.response.json();",
+                  "if (d.token) pm.collectionVariables.set(\"token\", d.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"sumedha.iyer@orientpaper.com\", \"password\": \"Orient@123\"}"
+            }
+          }
+        },
+        {
+          "name": "Login \u2014 Sales/KAM (Mohan Das)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const d = pm.response.json();",
+                  "if (d.token) pm.collectionVariables.set(\"token\", d.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"mohan.das@orientpaper.com\", \"password\": \"Orient@123\"}"
+            }
+          }
+        },
+        {
+          "name": "Login \u2014 Finance Officer (Anand Kulkarni)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const d = pm.response.json();",
+                  "if (d.token) { pm.collectionVariables.set(\"token\", d.token); pm.test(\"Finance login OK\", () => pm.response.to.have.status(200)); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"anand.kulkarni@orientpaper.com\", \"password\": \"Orient@123\"}"
+            }
+          }
+        },
+        {
+          "name": "RBAC Block \u2014 Finance tries to approve at TS_Review (expect 403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"action\": \"approve\"}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Health Check",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "2. Master Data",
+      "item": [
+        {
+          "name": "Get Customers",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/master-data/customers",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Users",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/master-data/users",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Roles",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/master-data/roles",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Departments",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/master-data/departments",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Products",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/master-data/products",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Complaint Types",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/master-data/complaintTypes",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Sample Types",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/master-data/sampleTypes",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Sales Policies",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/master-data/salesPolicies",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Invoice Lookup (SAP) \u2014 90009999",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/master-data/invoice/{{invoiceNumber}}",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Policy Check (Standalone)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/master-data/policy-check?businessLine=Chemical&customerSegment=Customer-Key&invoiceDate=2026-04-20&settlementValue=175000&invoiceValue=175000",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "master-data",
+                "policy-check"
+              ],
+              "query": [
+                {
+                  "key": "businessLine",
+                  "value": "Chemical"
+                },
+                {
+                  "key": "customerSegment",
+                  "value": "Customer-Key"
+                },
+                {
+                  "key": "invoiceDate",
+                  "value": "2026-04-20"
+                },
+                {
+                  "key": "settlementValue",
+                  "value": "175000"
+                },
+                {
+                  "key": "invoiceValue",
+                  "value": "175000"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Trigger Nightly SAP Master Sync",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/master-data/sap-sync",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Full Complaint Lifecycle (run top to bottom)",
+      "item": [
+        {
+          "name": "Stage 1 \u2014 Create Complaint (Logged)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "pm.collectionVariables.set('complaintNo', data.complaint.complaintNo);",
+                  "pm.test('Complaint created', () => pm.response.to.have.status(201));",
+                  "console.log('complaintNo ->', data.complaint.complaintNo);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoiceNumber\": \"{{invoiceNumber}}\",\n  \"title\": \"Caustic Soda contamination \u2014 5 MT drum batch\",\n  \"remarks\": \"Customer reports visible discoloration and odor in 2 of 5 MT received.\",\n  \"reportedBy\": \"CUST-2000001\",\n  \"lineItemsInput\": [\n    {\n      \"invoiceItemNo\": \"10\",\n      \"sapMaterialNo\": \"MAT-2001\",\n      \"defectiveQty\": 2,\n      \"complaintTypeId\": \"CT06\"\n    }\n  ],\n  \"attachmentsInput\": [\n    { \"fileReference\": \"photo_drum_01.jpg\", \"fileType\": \"image\", \"description\": \"Discoloration close-up\" }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Complaint (full picture)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Status Sequence & Gates",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/status-sequence",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Action: Approve (Logged \u2192 TS_Review)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U002\",\n  \"actorRole\": \"TS\",\n  \"remarks\": \"Forwarded to QC after initial TS check.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve (TS_Review \u2192 QC_Review)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U004\",\n  \"actorRole\": \"QC\",\n  \"remarks\": \"Requesting physical sample before sign-off.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Sample Record (QC)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "pm.collectionVariables.set('sampleId', data.sample.sampleId || data.sample.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/samples",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sampleTypeId\": \"ST03\",\n  \"createdBy\": \"U004\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve BLOCKED \u2014 sample not yet Received (expect 422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U004\",\n  \"actorRole\": \"QC\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Sample \u2192 Received + Tested",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/samples/{{sampleId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sampleStatus\": \"Received\",\n  \"receivedBy\": \"U004\",\n  \"receivedDate\": \"2026-06-28\",\n  \"testResult\": \"Contamination Confirmed\",\n  \"testResultNotes\": \"Foreign particulate found in sample, consistent with complaint.\",\n  \"testReportReference\": \"LAB-RPT-0099\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve (QC_Review \u2192 Sample_Awaited \u2192 next, gate now passes)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U004\",\n  \"actorRole\": \"QC\",\n  \"remarks\": \"Sample confirms contamination \u2014 forwarding for CAPA.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve (Sample_Awaited \u2192 CAPA_Pending)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U004\",\n  \"actorRole\": \"QC\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Document CAPA (Operations)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/capa",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentedBy\": \"U005\",\n  \"documentedByName\": \"Rajesh Gupta\",\n  \"sampleTestReference\": \"LAB-RPT-0099\",\n  \"rootCauseDescription\": \"Drum sealing gasket failure allowed ambient moisture ingress during transit.\",\n  \"correctiveAction\": \"Batch quarantined; affected drums replaced and re-dispatched free of cost.\",\n  \"preventiveAction\": \"Gasket inspection added to pre-dispatch QC checklist for all IBC/drum shipments.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve (CAPA_Pending \u2192 Ops_Head_Approval)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U005\",\n  \"actorRole\": \"Operations\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve (Ops_Head_Approval \u2192 Marketing_Review)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U006\",\n  \"actorRole\": \"Ops Head\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve (Marketing_Review \u2192 Marketing_Head_Approval)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U007\",\n  \"actorRole\": \"Marketing\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve (Marketing_Head_Approval \u2192 MD_Approval)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U008\",\n  \"actorRole\": \"Marketing Head\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve (MD_Approval \u2192 Visit_Pending)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U009\",\n  \"actorRole\": \"MD\",\n  \"remarks\": \"Approved \u2014 settlement exceeds \u20b91,00,000 threshold.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Schedule Customer Visit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "pm.collectionVariables.set('visitId', data.visit.visitId || data.visit.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/visits",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scheduledDate\": \"2026-07-02\",\n  \"assignedTo\": \"U010\",\n  \"scheduledBy\": \"U010\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Visit Outcome",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/visits/{{visitId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"visitStatus\": \"Completed\",\n  \"visitDate\": \"2026-07-02\",\n  \"findings\": \"Customer confirmed quarantine of remaining stock; satisfied with corrective action.\",\n  \"customerAcknowledgement\": true,\n  \"outcome\": \"Resolved\",\n  \"updatedBy\": \"U010\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve (Visit_Pending \u2192 Finance_Processing)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U010\",\n  \"actorRole\": \"Sales/KAM\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve BLOCKED \u2014 no Credit Note yet (expect 422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U011\",\n  \"actorRole\": \"Finance Officer\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Raise Credit Note (push to SAP)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/credit-note",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer complaint settlement \u2014 contaminated drum batch\",\n  \"raisedBy\": \"U011\",\n  \"raisedByName\": \"Anand Kulkarni\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Approve (Finance_Processing \u2192 Closed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U011\",\n  \"actorRole\": \"Finance Officer\",\n  \"remarks\": \"Credit note confirmed \u2014 closing complaint.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Audit Log (full trail)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/audit-log",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Complaint (final state \u2014 should be Closed)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Side Flows & Edge Cases",
+      "item": [
+        {
+          "name": "List All Complaints (with filters)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/complaints?status=Logged",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "complaints"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "Logged"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Add Line Item to Existing Complaint",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/line-items",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoiceItemNo\": \"10\",\n  \"sapMaterialNo\": \"MAT-2001\",\n  \"productName\": \"Caustic Soda Lye 48%\",\n  \"invoiceQty\": 5,\n  \"unitPrice\": 35000,\n  \"defectiveQty\": 1,\n  \"uom\": \"MT\",\n  \"complaintTypeId\": \"CT06\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Add Attachment to Existing Complaint",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/attachments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fileReference\": \"lab_report_0099.pdf\",\n  \"fileType\": \"document\",\n  \"description\": \"Lab test report\",\n  \"uploadedBy\": \"U004\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Reject (moves back one stage)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"reject\",\n  \"actorId\": \"U004\",\n  \"actorRole\": \"QC\",\n  \"remarks\": \"Insufficient detail \u2014 sending back.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Clarify (\u2192 Clarification_Sought)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"clarify\",\n  \"actorId\": \"U002\",\n  \"actorRole\": \"TS\",\n  \"remarks\": \"Need clearer photos of the defect.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Resolve Clarification (returns to prior stage)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"resolve_clarification\",\n  \"actorId\": \"CUST-2000001\",\n  \"actorRole\": \"Customer/Distributor\",\n  \"remarks\": \"Re-uploaded clearer photos.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Action: Auto Close",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"auto_close\",\n  \"actorId\": \"SYSTEM\",\n  \"actorRole\": \"System\",\n  \"remarks\": \"SLA breached \u2014 no response from customer in 30 days.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Complaint \u2014 Low Value (no MD/Visit gates, no sample)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoiceNumber\": \"90001234\",\n  \"title\": \"Short supply on Copier Paper\",\n  \"remarks\": \"Received 480 reams instead of 500.\",\n  \"reportedBy\": \"CUST-1000123\",\n  \"lineItemsInput\": [\n    {\n      \"invoiceItemNo\": \"10\",\n      \"sapMaterialNo\": \"MAT-1002\",\n      \"defectiveQty\": 20,\n      \"complaintTypeId\": \"CT04\"\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Complaint \u2014 Bad Invoice (SAP fallback path)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/complaints",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoiceNumber\": \"INVALID-99\",\n  \"title\": \"Walk-in complaint, invoice not in system\",\n  \"customerId\": \"1000123\",\n  \"reportedBy\": \"CUST-1000123\",\n  \"lineItemsInput\": [\n    { \"sapMaterialNo\": \"MAT-1001\", \"defectiveQty\": 5, \"complaintTypeId\": \"CT02\", \"unitPrice\": 80 }\n  ]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Notifications (Section 12.1)",
+      "item": [
+        {
+          "name": "Get All Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/notifications"
+          }
+        },
+        {
+          "name": "Get Notifications for Complaint",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/notifications/{{complaintNo}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. SLA Engine (Section 12.2)",
+      "item": [
+        {
+          "name": "Get All SLA Breaches",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/sla/breaches"
+          }
+        },
+        {
+          "name": "Get SLA Breaches for Complaint",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/sla/breaches/{{complaintNo}}"
+          }
+        },
+        {
+          "name": "Trigger Manual SLA Check (instant)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/sla/check"
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. KPI Dashboard (Section 12.4)",
+      "item": [
+        {
+          "name": "Full KPI Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/kpi"
+          }
+        },
+        {
+          "name": "KPI Summary (lightweight)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/kpi/summary"
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. NFR \u2014 Security, Archival & Rollout (12.6/12.7/12.8)",
+      "item": [
+        {
+          "name": "Audit Log Integrity Verify (12.6)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/audit-log/verify"
+          }
+        },
+        {
+          "name": "Archival Policy (12.7)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/archive/policy"
+          }
+        },
+        {
+          "name": "Trigger Manual Archival Check (12.7)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/archive/run"
+          }
+        },
+        {
+          "name": "Get Archived Complaints (12.7)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/archive"
+          }
+        },
+        {
+          "name": "Archival Log (12.7)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/archive/log"
+          }
+        },
+        {
+          "name": "Rollout Status \u2014 Current Phase (12.8)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/rollout"
+          }
+        },
+        {
+          "name": "Health Check (with security headers)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{base_url}}/"
+          }
+        }
+      ]
+    }
+  ]
+}

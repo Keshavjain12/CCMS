@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Orient Paper &amp; Mill — CCMS</title>
+  <meta name="description" content="Customer Complaint Management System — role-based portals with JWT authentication." />
+
+  <!--
+    Content-Security-Policy — the app's primary XSS defence.
+    `script-src 'self'` means the browser will only execute JavaScript from
+    our own files: injected inline scripts and inline event handlers
+    (e.g. <img src=x onerror=...>) are refused, so an attacker cannot run the
+    code needed to read the JWT out of localStorage and exfiltrate it. The app
+    uses zero inline scripts, so this does not break anything.
+    `connect-src` limits where fetch() may go (dev localhost + any https API).
+    `object-src 'none'` / `base-uri 'self'` close common injection side-doors.
+    NOTE: frame-ancestors / X-Frame-Options are ignored in <meta>; they are set
+    as real HTTP headers in serve.js (and should be replicated in production).
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' http://localhost:* https:; base-uri 'self'; form-action 'self'; object-src 'none'" />
+  <meta name="referrer" content="no-referrer" />
+
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📄</text></svg>" />
+  <link rel="stylesheet" href="css/styles.css" />
+
+  <!-- 1) Environment config — MUST load before the app. -->
+  <script src="env/config.js"></script>
+</head>
+<body>
+  <div id="root">
+    <div class="boot">Loading CCMS…</div>
+  </div>
+
+  <!-- 2) Core (order matters: each layer builds on the previous) -->
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/roles.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/shell.js"></script>
+  <script src="js/router.js"></script>
+
+  <!-- 3) Views -->
+  <script src="js/views/login.js"></script>
+  <script src="js/views/dashboard.js"></script>
+  <script src="js/views/complaints.js"></script>
+  <script src="js/views/complaintDetail.js"></script>
+  <script src="js/views/createComplaint.js"></script>
+  <script src="js/views/lists.js"></script>
+  <script src="js/views/admin.js"></script>
+
+  <!-- 4) Bootstrap (registers routes, starts router) -->
+  <script src="js/app.js"></script>
+</body>
+</html>
