@@ -57,7 +57,7 @@ async function runArchivalCheck() {
   const now = new Date().toISOString();
   console.log(`\n🗄️  [ARCHIVAL] Running check at ${now}`);
 
-  const all = complaintStore.getAll();
+  const all = await complaintStore.getAll();
   let attachmentsPurged = 0;
   let complaintsArchived = 0;
 
@@ -72,7 +72,7 @@ async function runArchivalCheck() {
     // ── 1. Attachment retention check ─────────────────────────────────
     if (daysSinceClosure >= ATTACHMENT_RETENTION_DAYS) {
       const attachments = attachmentStore
-        ? attachmentStore.getForComplaint(complaint.complaintNo)
+        ? await attachmentStore.getForComplaint(complaint.complaintNo)
         : [];
 
       for (const att of attachments) {
@@ -80,7 +80,7 @@ async function runArchivalCheck() {
 
         // Flag for purge — in production this deletes the file from S3/disk
         // Here we mark the metadata and log it
-        attachmentStore && attachmentStore.markPurged && attachmentStore.markPurged(att.attachmentId);
+        attachmentStore && attachmentStore.markPurged && await attachmentStore.markPurged(att.attachmentId);
 
         logArchival({
           type:        "attachment_purge",
@@ -91,7 +91,7 @@ async function runArchivalCheck() {
           daysSinceClosure,
         });
 
-        audit.log({
+        await audit.log({
           complaintNo: complaint.complaintNo,
           action:      "Attachment Purged",
           actorType:   "System",
@@ -115,7 +115,7 @@ async function runArchivalCheck() {
       });
 
       // Mark as archived in live store (excluded from KPI/live queries)
-      complaintStore.update(complaint.complaintNo, { archived: true, archivedAt: now });
+      await complaintStore.update(complaint.complaintNo, { archived: true, archivedAt: now });
 
       logArchival({
         type:        "complaint_archive",
@@ -125,7 +125,7 @@ async function runArchivalCheck() {
         reason:      `Archive window (${COMPLAINT_ARCHIVE_DAYS} days) exceeded`,
       });
 
-      audit.log({
+      await audit.log({
         complaintNo: complaint.complaintNo,
         action:      "Complaint Archived",
         actorType:   "System",

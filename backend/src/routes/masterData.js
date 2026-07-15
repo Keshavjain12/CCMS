@@ -26,7 +26,7 @@ router.get("/invoice/:invoiceNo", async (req, res) => {
 router.post("/sap-sync", requireRoles(["R000"]), async (req, res) => {
   try {
     const result = await sap.runMasterDataBatchSync();
-    audit.log({
+    await audit.log({
       complaintNo: "SYSTEM",
       action:      "SAP Master Data Batch Sync",
       actorType:   "System",
@@ -43,7 +43,7 @@ router.post("/sap-sync", requireRoles(["R000"]), async (req, res) => {
 // ── GET /api/master-data/policy-check ───────────────────────────────────
 // Check if a complaint would comply with the applicable Sales Policy.
 // Query params: businessLine, customerSegment, invoiceDate, settlementValue, invoiceValue
-router.get("/policy-check", (req, res) => {
+router.get("/policy-check", async (req, res) => {
   const { businessLine, customerSegment, invoiceDate, settlementValue, invoiceValue } = req.query;
   if (!businessLine || !customerSegment || !invoiceDate || !settlementValue || !invoiceValue) {
     return res.status(400).json({ error: "Required: businessLine, customerSegment, invoiceDate, settlementValue, invoiceValue" });
@@ -64,7 +64,7 @@ router.get("/policy-check", (req, res) => {
 // NOTE: This wildcard route must stay LAST — Express matches routes in
 // registration order, and "/:entity" would otherwise swallow requests meant
 // for /invoice/:invoiceNo, /sap-sync, and /policy-check above.
-router.get("/:entity", (req, res) => {
+router.get("/:entity", async (req, res) => {
   const map = {
     customers:      masterData.customers,
     // Never expose password hashes over the API (Section 12.6).

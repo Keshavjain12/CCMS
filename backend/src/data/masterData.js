@@ -1,293 +1,148 @@
 // =========================================================================
-// MASTER DATA  —  Orient Paper & Mill CCMS
+// MASTER DATA  —  CCMS
 // =========================================================================
-// Source: Section 3 (Customers, Users, Roles, Products, Invoices,
-//         Complaint Types, Departments), Section 6.2 (Sample Types),
-//         Section 9.1 (Sales Policies) of the CCMS Data Classification
-//         Report & Addendum.
+// Source: Section 3 (Master Data), Section 6.2 (Sample Types),
+//         Section 9.1 (Sales Policies).
 //
-// In production these are seeded/synced from SAP (nightly batch for
-// Customer, Product, Sales Policy per Section 11.1). Invoice data is
-// fetched in real-time at complaint creation.
+// Backed by PostgreSQL, cached in memory.
+//
+// Why a cache: master data is small (a few hundred rows), changes only via
+// the nightly SAP sync, and is read on virtually every request. Loading it
+// once at boot keeps every accessor SYNCHRONOUS, so the policy engine, SAP
+// service and RBAC layer stay exactly as they were. Postgres remains the
+// source of truth; call reload() after a SAP sync to refresh.
+//
+// Entities:
+//   1. Customers / Distributors   2. Users        3. Roles
+//   4. Departments                5. Products     6. Invoices
+//   7. Complaint Types            8. Sample Types 9. Sales Policies
 // =========================================================================
 
-// ─── 1. CUSTOMERS / DISTRIBUTORS ─────────────────────────────────────────
-// Synced nightly from SAP Business Partner (API_BUSINESS_PARTNER).
-// Each customer sees ONLY their own invoices (data-isolation rule, Section 5).
-const customers = [
-  {
-    customerId: "1000123",
-    name: "Shree Distributors Pvt Ltd",
-    type: "Distributor",                // Customer | Distributor
-    region: "Central India",
-    segment: "Distributor-Standard",    // Used for Sales Policy match
-    businessLine: "Paper",
-    contactPerson: "Ramesh Sharma",
-    email: "accounts@shreedist.example.com",
-    phone: "9876543210",
-    city: "Bhopal",
-    state: "Madhya Pradesh",
-    gstNumber: "23AAACS1234A1Z5",
-    isKeyAccount: false,
-    sapBusinessPartner: "1000123",
-    appAccess: "mobile",
-    active: true,
-  },
-  {
-    customerId: "1000456",
-    name: "Anand Traders",
-    type: "Customer",
-    region: "Western India",
-    segment: "Customer-KeyAccount",
-    businessLine: "Paper",
-    contactPerson: "Suresh Anand",
-    email: "finance@anandtraders.example.com",
-    phone: "9988776655",
-    city: "Surat",
-    state: "Gujarat",
-    gstNumber: "24AAAAA0000A1Z5",
-    isKeyAccount: true,
-    sapBusinessPartner: "1000456",
-    appAccess: "mobile",
-    active: true,
-  },
-  {
-    customerId: "2000001",
-    name: "PetroChemicals Ltd",
-    type: "Customer",
-    region: "Northern India",
-    segment: "Customer-Standard",
-    businessLine: "Chemical",
-    contactPerson: "Anil Kumar",
-    email: "purchase@petrochemicals.example.com",
-    phone: "9112233445",
-    city: "Noida",
-    state: "Uttar Pradesh",
-    gstNumber: "09AABCP1234R1ZC",
-    isKeyAccount: false,
-    sapBusinessPartner: "2000001",
-    appAccess: "mobile",
-    active: true,
-  },
-  {
-    customerId: "2000002",
-    name: "National Packaging Co.",
-    type: "Distributor",
-    region: "Eastern India",
-    segment: "Distributor-Premium",
-    businessLine: "Paper",
-    contactPerson: "Debashish Roy",
-    email: "info@natpack.example.com",
-    phone: "9033445566",
-    city: "Kolkata",
-    state: "West Bengal",
-    gstNumber: "19AABCN9876Q1ZD",
-    isKeyAccount: true,
-    sapBusinessPartner: "2000002",
-    appAccess: "mobile",
-    active: true,
-  },
-];
+const db = require("../db/pool");
 
-// ─── 2. USERS ─────────────────────────────────────────────────────────────
-// Internal staff. Web App access. Role determines workflow authority.
-// Passwords are bcrypt hashes. Plain-text for dev/testing shown in comments.
-// Default password for all users: Orient@123
-// Admin (U000): Admin@456
-const users = [
-  { userId: "U001", name: "Priya Mehta",    department: "D001", roleId: "R001", email: "priya.mehta@orientpaper.com",    password: "$2a$10$fZfWEjCHAmv60K1qsqKzy.NeQpYFsunJ02.2H2maZ5F/B4CzY3/4a", active: true },
-  { userId: "U002", name: "Kiran Joshi",    department: "D001", roleId: "R002", email: "kiran.joshi@orientpaper.com",    password: "$2a$10$fZfWEjCHAmv60K1qsqKzy.NeQpYFsunJ02.2H2maZ5F/B4CzY3/4a", active: true },
-  { userId: "U003", name: "Amit Verma",     department: "D002", roleId: "R003", email: "amit.verma@orientpaper.com",     password: "$2a$10$fZfWEjCHAmv60K1qsqKzy.NeQpYFsunJ02.2H2maZ5F/B4CzY3/4a", active: true },
-  { userId: "U004", name: "Neha Singh",     department: "D002", roleId: "R004", email: "neha.singh@orientpaper.com",     password: "$2a$10$fZfWEjCHAmv60K1qsqKzy.NeQpYFsunJ02.2H2maZ5F/B4CzY3/4a", active: true },
-  { userId: "U005", name: "Rajesh Gupta",   department: "D003", roleId: "R005", email: "rajesh.gupta@orientpaper.com",   password: "$2a$10$fZfWEjCHAmv60K1qsqKzy.NeQpYFsunJ02.2H2maZ5F/B4CzY3/4a", active: true },
-  { userId: "U006", name: "Sanjay Patel",   department: "D003", roleId: "R006", email: "sanjay.patel@orientpaper.com",   password: "$2a$10$fZfWEjCHAmv60K1qsqKzy.NeQpYFsunJ02.2H2maZ5F/B4CzY3/4a", active: true },
-  { userId: "U007", name: "Deepa Nair",     department: "D004", roleId: "R007", email: "deepa.nair@orientpaper.com",     password: "$2a$10$fZfWEjCHAmv60K1qsqKzy.NeQpYFsunJ02.2H2maZ5F/B4CzY3/4a", active: true },
-  { userId: "U008", name: "Vikram Rao",     department: "D004", roleId: "R008", email: "vikram.rao@orientpaper.com",     password: "$2a$10$fZfWEjCHAmv60K1qsqKzy.NeQpYFsunJ02.2H2maZ5F/B4CzY3/4a", active: true },
-  { userId: "U009", name: "Sumedha Iyer",   department: "D005", roleId: "R009", email: "sumedha.iyer@orientpaper.com",   password: "$2a$10$fZfWEjCHAmv60K1qsqKzy.NeQpYFsunJ02.2H2maZ5F/B4CzY3/4a", active: true },
-  { userId: "U010", name: "Anand Kulkarni", department: "D006", roleId: "R010", email: "anand.kulkarni@orientpaper.com", password: "$2a$10$fZfWEjCHAmv60K1qsqKzy.NeQpYFsunJ02.2H2maZ5F/B4CzY3/4a", active: true },
-  { userId: "U011", name: "Mohan Das",      department: "D007", roleId: "R011", email: "mohan.das@orientpaper.com",      password: "$2a$10$fZfWEjCHAmv60K1qsqKzy.NeQpYFsunJ02.2H2maZ5F/B4CzY3/4a", active: true },
-  // Admin user — full access, no department restriction
-  { userId: "U000", name: "CCMS Admin",     department: null,   roleId: "R000", email: "admin@orientpaper.com",          password: "$2a$10$LGAEcXXIqJUjC9t1kFFdaOhUuvZyXf4vjIvTjI.l2VYmv.TpTgNnK", active: true },
-];
+// Exported containers are mutated IN PLACE on load — never reassigned —
+// so modules that captured a reference at require() time stay correct.
+const customers      = [];
+const users          = [];
+const roles          = [];
+const departments    = [];
+const products       = [];
+const complaintTypes = [];
+const sampleTypes    = [];
+const salesPolicies  = [];
+const invoices       = {};   // keyed by invoice number, in SAP OData shape
 
-// ─── 3. ROLES ─────────────────────────────────────────────────────────────
-// Role determines which status transitions a user can execute (RBAC).
-const roles = [
-  { roleId: "R000", roleName: "Admin",                  department: null,   canApprove: true,  canForward: true,  canReject: true,  level: 99 },
-  { roleId: "R001", roleName: "TS Officer",             department: "D001", canApprove: false, canForward: true,  canReject: true,  level: 1 },
-  { roleId: "R002", roleName: "TS Head",                department: "D001", canApprove: true,  canForward: true,  canReject: true,  level: 2 },
-  { roleId: "R003", roleName: "QC Analyst",             department: "D002", canApprove: false, canForward: true,  canReject: true,  level: 1 },
-  { roleId: "R004", roleName: "QC Manager",             department: "D002", canApprove: true,  canForward: true,  canReject: true,  level: 2 },
-  { roleId: "R005", roleName: "Operations Analyst",     department: "D003", canApprove: false, canForward: true,  canReject: true,  level: 1 },
-  { roleId: "R006", roleName: "Operations Head",        department: "D003", canApprove: true,  canForward: true,  canReject: true,  level: 3 },
-  { roleId: "R007", roleName: "Product Manager",        department: "D004", canApprove: false, canForward: true,  canReject: true,  level: 1 },
-  { roleId: "R008", roleName: "Marketing Head",         department: "D004", canApprove: true,  canForward: true,  canReject: true,  level: 3 },
-  { roleId: "R009", roleName: "Managing Director",      department: "D005", canApprove: true,  canForward: true,  canReject: true,  level: 4 },
-  { roleId: "R010", roleName: "Finance Officer",        department: "D006", canApprove: true,  canForward: true,  canReject: true,  level: 2 },
-  { roleId: "R011", roleName: "Sales/KAM",              department: "D007", canApprove: false, canForward: true,  canReject: false, level: 1 },
-];
+let loaded = false;
 
-// ─── 4. DEPARTMENTS ──────────────────────────────────────────────────────
-const departments = [
-  { departmentId: "D001", departmentName: "Technical Services (TS)", code: "TS" },
-  { departmentId: "D002", departmentName: "Quality Control (QC)",    code: "QC" },
-  { departmentId: "D003", departmentName: "Operations",              code: "OPS" },
-  { departmentId: "D004", departmentName: "Marketing",               code: "MKT" },
-  { departmentId: "D005", departmentName: "Managing Director Office", code: "MD" },
-  { departmentId: "D006", departmentName: "Finance",                 code: "FIN" },
-  { departmentId: "D007", departmentName: "Sales",                   code: "SLS" },
-];
+function refill(target, rows) {
+  target.length = 0;
+  rows.forEach((r) => target.push(r));
+}
 
-// ─── 5. PRODUCTS / SKUs ──────────────────────────────────────────────────
-// Synced nightly from SAP Material Master (API_PRODUCT_SRV).
-// Product category drives routing to the correct Product Manager at Stage 5.
-const products = [
-  { productId: "P001", productName: "Maplitho Paper 70 GSM A4",      category: "Paper",    uom: "Ream",  businessLine: "Paper",    sapMaterialNo: "MAT-1001", active: true },
-  { productId: "P002", productName: "Copier Paper 80 GSM A4",        category: "Paper",    uom: "Ream",  businessLine: "Paper",    sapMaterialNo: "MAT-1002", active: true },
-  { productId: "P003", productName: "Kraft Paper Roll 110 GSM",      category: "Paper",    uom: "Tonne", businessLine: "Paper",    sapMaterialNo: "MAT-1003", active: true },
-  { productId: "P004", productName: "Newsprint Roll 45 GSM",         category: "Paper",    uom: "Tonne", businessLine: "Paper",    sapMaterialNo: "MAT-1004", active: true },
-  { productId: "P005", productName: "Caustic Soda Lye 48% (IBC)",    category: "Chemical", uom: "MT",    businessLine: "Chemical", sapMaterialNo: "MAT-2001", active: true },
-  { productId: "P006", productName: "Chlorine Gas (Cylinder)",        category: "Chemical", uom: "Cylinder", businessLine: "Chemical", sapMaterialNo: "MAT-2002", active: true },
-  { productId: "P007", productName: "Sodium Hypochlorite 12% (Drum)","category": "Chemical", uom: "Drum", businessLine: "Chemical", sapMaterialNo: "MAT-2003", active: true },
-];
+/**
+ * Hydrate every master entity from Postgres. Called once at boot (see
+ * server.js) and again after a SAP master-data sync.
+ */
+async function load() {
+  refill(departments, await db.many(`
+    SELECT department_id AS "departmentId", department_name AS "departmentName", code
+    FROM departments ORDER BY department_id`));
 
-// ─── 6. INVOICES ─────────────────────────────────────────────────────────
-// In production: fetched real-time from SAP (API_BILLING_DOCUMENT_SRV).
-// This mock mirrors the exact OData field structure SAP returns.
-const invoices = {
-  "90001234": {
-    BillingDocument:     "90001234",
-    BillingDocumentDate: "2026-05-12",
-    SoldToParty:         "1000123",
-    PaymentTerms:        "NT30",
-    NetAmount:           "45000.00",
-    TransactionCurrency: "INR",
-    lineItems: [
-      { BillingDocumentItem: "10", Material: "MAT-1002", MaterialDescription: "Copier Paper 80 GSM A4", BillingQuantity: 500, BillingQuantityUnit: "Ream", NetAmount: "45000.00", NetPriceAmount: "90.00" },
-    ],
-  },
-  "90005678": {
-    BillingDocument:     "90005678",
-    BillingDocumentDate: "2026-06-02",
-    SoldToParty:         "1000456",
-    PaymentTerms:        "NT45",
-    NetAmount:           "128500.00",
-    TransactionCurrency: "INR",
-    lineItems: [
-      { BillingDocumentItem: "10", Material: "MAT-1001", MaterialDescription: "Maplitho Paper 70 GSM A4", BillingQuantity: 1000, BillingQuantityUnit: "Ream", NetAmount: "80000.00", NetPriceAmount: "80.00" },
-      { BillingDocumentItem: "20", Material: "MAT-1004", MaterialDescription: "Newsprint Roll 45 GSM",    BillingQuantity: 2,    BillingQuantityUnit: "Tonne", NetAmount: "48500.00", NetPriceAmount: "24250.00" },
-    ],
-  },
-  "90009999": {
-    BillingDocument:     "90009999",
-    BillingDocumentDate: "2026-04-20",
-    SoldToParty:         "2000001",
-    PaymentTerms:        "NT60",
-    NetAmount:           "175000.00",
-    TransactionCurrency: "INR",
-    lineItems: [
-      { BillingDocumentItem: "10", Material: "MAT-2001", MaterialDescription: "Caustic Soda Lye 48%", BillingQuantity: 5, BillingQuantityUnit: "MT", NetAmount: "175000.00", NetPriceAmount: "35000.00" },
-    ],
-  },
-};
+  refill(roles, await db.many(`
+    SELECT role_id AS "roleId", role_name AS "roleName", department_id AS "department",
+           can_approve AS "canApprove", can_forward AS "canForward",
+           can_reject AS "canReject", level
+    FROM roles ORDER BY role_id`));
 
-// ─── 7. COMPLAINT TYPES ───────────────────────────────────────────────────
-// Nature of complaint options selectable per line item (Stage 1).
-const complaintTypes = [
-  { typeId: "CT01", typeName: "Quality Defect",          businessLine: "Both",     sampleRequired: true,  defaultSampleType: "ST01" },
-  { typeId: "CT02", typeName: "Size / Dimension Mismatch", businessLine: "Paper",   sampleRequired: false, defaultSampleType: null },
-  { typeId: "CT03", typeName: "Torn / Damaged",          businessLine: "Paper",     sampleRequired: true,  defaultSampleType: "ST02" },
-  { typeId: "CT04", typeName: "Short Supply",            businessLine: "Both",      sampleRequired: false, defaultSampleType: null },
-  { typeId: "CT05", typeName: "Wrong Product Supplied",  businessLine: "Both",      sampleRequired: true,  defaultSampleType: "ST01" },
-  { typeId: "CT06", typeName: "Contamination",           businessLine: "Chemical",  sampleRequired: true,  defaultSampleType: "ST03" },
-  { typeId: "CT07", typeName: "Packing Defect",          businessLine: "Both",      sampleRequired: true,  defaultSampleType: "ST04" },
-  { typeId: "CT08", typeName: "Moisture / Dampness",     businessLine: "Paper",     sampleRequired: true,  defaultSampleType: "ST01" },
-  { typeId: "CT09", typeName: "Colour / Shade Variation","businessLine": "Paper",   sampleRequired: true,  defaultSampleType: "ST02" },
-  { typeId: "CT10", typeName: "Billing Error",           businessLine: "Both",      sampleRequired: false, defaultSampleType: null },
-];
+  refill(users, await db.many(`
+    SELECT user_id AS "userId", name, department_id AS "department", role_id AS "roleId",
+           email, password_hash AS "password", active
+    FROM users ORDER BY user_id`));
 
-// ─── 8. SAMPLE TYPES ─────────────────────────────────────────────────────
-// Section 6.2 — New master data entity.
-const sampleTypes = [
-  { sampleTypeId: "ST01", sampleTypeName: "Paper Roll Cutting",       applicableBusinessLine: "Paper",    defaultRequired: true  },
-  { sampleTypeId: "ST02", sampleTypeName: "Ream Sample",              applicableBusinessLine: "Paper",    defaultRequired: true  },
-  { sampleTypeId: "ST03", sampleTypeName: "Chemical Drum Sample",     applicableBusinessLine: "Chemical", defaultRequired: true  },
-  { sampleTypeId: "ST04", sampleTypeName: "Packaging Sample",         applicableBusinessLine: "Both",     defaultRequired: true  },
-  { sampleTypeId: "ST05", sampleTypeName: "Lab Reference Sample",     applicableBusinessLine: "Chemical", defaultRequired: false },
-];
+  refill(customers, await db.many(`
+    SELECT customer_id AS "customerId", name, type, region, segment,
+           business_line AS "businessLine", contact_person AS "contactPerson",
+           email, phone, city, state, gst_number AS "gstNumber",
+           is_key_account AS "isKeyAccount", sap_business_partner AS "sapBusinessPartner",
+           app_access AS "appAccess", active
+    FROM customers ORDER BY customer_id`));
 
-// ─── 9. SALES POLICIES ───────────────────────────────────────────────────
-// Section 9.1 — New master data entity. Synced nightly from SAP pricing
-// condition records (API_SLSPRICINGCONDITIONRECORD_SRV).
-const salesPolicies = [
-  {
-    policyId: "SP01",
-    policyName: "Standard Paper Return Policy 2026",
-    businessLine: "Paper",
-    applicableSegment: "Customer-Standard",
-    applicableRegion: "All",
-    maxSettlementPct: 80,           // % of invoice value that can be credited without override
-    complaintWindowDays: 30,        // days from invoice date to raise complaint
-    linkedDiscountScheme: null,
-    validFrom: "2026-01-01",
-    validTo: "2026-12-31",
-    approvalOverrideOnBreach: true, // forces MD approval if policy breached regardless of settlement amount
-  },
-  {
-    policyId: "SP02",
-    policyName: "Key Account Premium Policy 2026",
-    businessLine: "Paper",
-    applicableSegment: "Customer-KeyAccount",
-    applicableRegion: "All",
-    maxSettlementPct: 100,
-    complaintWindowDays: 45,
-    linkedDiscountScheme: "KA-SCHEME-2026",
-    validFrom: "2026-01-01",
-    validTo: "2026-12-31",
-    approvalOverrideOnBreach: true,
-  },
-  {
-    policyId: "SP03",
-    policyName: "Chemical Standard Policy 2026",
-    businessLine: "Chemical",
-    applicableSegment: "Customer-Standard",
-    applicableRegion: "All",
-    maxSettlementPct: 75,
-    complaintWindowDays: 21,
-    linkedDiscountScheme: null,
-    validFrom: "2026-01-01",
-    validTo: "2026-12-31",
-    approvalOverrideOnBreach: true,
-  },
-  {
-    policyId: "SP04",
-    policyName: "Distributor Standard Policy 2026",
-    businessLine: "Both",
-    applicableSegment: "Distributor-Standard",
-    applicableRegion: "All",
-    maxSettlementPct: 85,
-    complaintWindowDays: 30,
-    linkedDiscountScheme: "DIST-REBATE-2026",
-    validFrom: "2026-01-01",
-    validTo: "2026-12-31",
-    approvalOverrideOnBreach: false,
-  },
-  {
-    policyId: "SP05",
-    policyName: "Distributor Premium Policy 2026",
-    businessLine: "Both",
-    applicableSegment: "Distributor-Premium",
-    applicableRegion: "All",
-    maxSettlementPct: 100,
-    complaintWindowDays: 60,
-    linkedDiscountScheme: "DIST-PREMIUM-2026",
-    validFrom: "2026-01-01",
-    validTo: "2026-12-31",
-    approvalOverrideOnBreach: false,
-  },
-];
+  refill(products, await db.many(`
+    SELECT product_id AS "productId", product_name AS "productName", category, uom,
+           business_line AS "businessLine", sap_material_no AS "sapMaterialNo", active
+    FROM products ORDER BY product_id`));
+
+  refill(sampleTypes, await db.many(`
+    SELECT sample_type_id AS "sampleTypeId", sample_type_name AS "sampleTypeName",
+           applicable_business_line AS "applicableBusinessLine",
+           default_required AS "defaultRequired"
+    FROM sample_types ORDER BY sample_type_id`));
+
+  refill(complaintTypes, await db.many(`
+    SELECT type_id AS "typeId", type_name AS "typeName", business_line AS "businessLine",
+           sample_required AS "sampleRequired", default_sample_type_id AS "defaultSampleType"
+    FROM complaint_types ORDER BY type_id`));
+
+  refill(salesPolicies, await db.many(`
+    SELECT policy_id AS "policyId", policy_name AS "policyName",
+           business_line AS "businessLine", applicable_segment AS "applicableSegment",
+           applicable_region AS "applicableRegion", max_settlement_pct AS "maxSettlementPct",
+           complaint_window_days AS "complaintWindowDays",
+           linked_discount_scheme AS "linkedDiscountScheme",
+           valid_from AS "validFrom", valid_to AS "validTo",
+           approval_override_on_breach AS "approvalOverrideOnBreach"
+    FROM sales_policies ORDER BY policy_id`));
+
+  // Invoices are rebuilt into the exact SAP OData shape sapService expects,
+  // keyed by invoice number, with line items nested under `lineItems`.
+  const invRows = await db.many(`
+    SELECT invoice_number, to_char(invoice_date, 'YYYY-MM-DD') AS invoice_date,
+           sold_to_party, payment_terms, net_amount, currency
+    FROM invoices ORDER BY invoice_number`);
+  const itemRows = await db.many(`
+    SELECT invoice_number, invoice_item_no, sap_material_no, material_description,
+           billing_qty, uom, net_amount, unit_price
+    FROM invoice_line_items ORDER BY invoice_number, invoice_item_no`);
+
+  Object.keys(invoices).forEach((k) => delete invoices[k]);
+  for (const r of invRows) {
+    invoices[r.invoice_number] = {
+      BillingDocument:     r.invoice_number,
+      BillingDocumentDate: r.invoice_date,
+      SoldToParty:         r.sold_to_party,
+      PaymentTerms:        r.payment_terms,
+      NetAmount:           r.net_amount.toFixed(2),
+      TransactionCurrency: r.currency,
+      lineItems: [],
+    };
+  }
+  for (const it of itemRows) {
+    const inv = invoices[it.invoice_number];
+    if (!inv) continue;
+    inv.lineItems.push({
+      BillingDocumentItem:  it.invoice_item_no,
+      Material:             it.sap_material_no,
+      MaterialDescription:  it.material_description,
+      BillingQuantity:      it.billing_qty,
+      BillingQuantityUnit:  it.uom,
+      NetAmount:            it.net_amount.toFixed(2),
+      NetPriceAmount:       it.unit_price.toFixed(2),
+    });
+  }
+
+  loaded = true;
+  return {
+    customers: customers.length, users: users.length, roles: roles.length,
+    departments: departments.length, products: products.length,
+    invoices: Object.keys(invoices).length, complaintTypes: complaintTypes.length,
+    sampleTypes: sampleTypes.length, salesPolicies: salesPolicies.length,
+  };
+}
+
+function isLoaded() { return loaded; }
 
 // ─── LOOKUP HELPERS ───────────────────────────────────────────────────────
+// All synchronous — they read the in-memory cache.
 
 function findCustomer(customerId) {
   return customers.find((c) => c.customerId === customerId) || null;
@@ -366,6 +221,7 @@ function checkPolicyCompliance(policy, invoiceDate, settlementValue, invoiceValu
 }
 
 module.exports = {
+  load, reload: load, isLoaded,
   customers, users, roles, departments, products, invoices,
   complaintTypes, sampleTypes, salesPolicies,
   findCustomer, findProduct, findProductById,

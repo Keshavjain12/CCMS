@@ -119,7 +119,7 @@ async function runSlaCheck() {
   const now = new Date().toISOString();
   console.log(`\n⏱  [SLA ENGINE] Running check at ${now}`);
 
-  const allComplaints = complaintStore.getAll();
+  const allComplaints = await complaintStore.getAll();
   let breachCount = 0;
   let autoClosedCount = 0;
 
@@ -132,9 +132,9 @@ async function runSlaCheck() {
     // ── Auto-close for long-stale Clarification_Sought ─────────────────
     if (complaint.status === "Clarification_Sought") {
       if (daysInStage >= CLARIFY_SLA_DAYS) {
-        complaintStore.update(complaint.complaintNo, { status: "Auto_Closed" });
+        await complaintStore.update(complaint.complaintNo, { status: "Auto_Closed" });
 
-        audit.log({
+        await audit.log({
           complaintNo: complaint.complaintNo,
           fromStatus:  "Clarification_Sought",
           toStatus:    "Auto_Closed",
@@ -190,7 +190,7 @@ async function runSlaCheck() {
     });
 
     // Audit trail entry
-    audit.log({
+    await audit.log({
       complaintNo: complaint.complaintNo,
       fromStatus:  complaint.status,
       toStatus:    complaint.status, // status doesn't change — just flagged
@@ -202,7 +202,7 @@ async function runSlaCheck() {
     });
 
     // Mark complaint as SLA-breached
-    complaintStore.update(complaint.complaintNo, {
+    await complaintStore.update(complaint.complaintNo, {
       slaBreached:       true,
       slaBreachedAt:     now,
       slaBreachedStatus: complaint.status,

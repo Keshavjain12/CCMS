@@ -10,6 +10,7 @@ This is the complete backend for the Orient Paper & Mill CCMS — built exactly 
 
 | Area | What's Built |
 |---|---|
+| **Persistence** | PostgreSQL — 18 tables. Money is `numeric`, defective value is a generated column, all 16 workflow statuses are CHECK-constrained, and the audit log is append-only at the database level |
 | **Master Data** | 9 entities: Customer/Distributor, User, Role, Department, Product/SKU, Invoice, Complaint Type, Sample Type, Sales Policy |
 | **Complaint Transaction** | Full Stage 1–8 lifecycle with all gates, approvals, and side-states |
 | **SAP Integration** | All 6 touchpoints from Section 11.1 — real-time invoice lookup, nightly master data batch sync, Credit Note push and writeback |
@@ -24,29 +25,66 @@ This is the complete backend for the Orient Paper & Mill CCMS — built exactly 
 
 ## Quick Start
 
-The project is split into **`backend/`** (Express API) and **`frontend/`**
-(static SPA). Run each in its own terminal.
+The project is split into **`backend/`** (Express API + PostgreSQL) and
+**`frontend/`** (static SPA).
 
-**1. Backend** (terminal 1):
+### Prerequisites
+
+| | |
+|---|---|
+| **Node.js** | 18 or newer |
+| **PostgreSQL** | 13 or newer, running locally (default port `5432`) |
+
+You need the PostgreSQL **server** running; the `psql` CLI is *not* required —
+setup goes through the Node driver.
+
+### 1. Backend (terminal 1)
 
 ```bash
 cd backend
-npm install            # first time only
-cp .env.example .env   # first time only (or keep the existing .env)
-npm start              # → http://localhost:3000  (MOCK SAP mode)
+npm install                  # first time only
+cp .env.example .env         # first time only
+#   → open .env and set PGPASSWORD to your PostgreSQL password
+npm run init-db              # creates the `ccms` database, schema + seed data
+npm start                    # → http://localhost:3000  (MOCK SAP mode)
 ```
 
-**2. Frontend** (terminal 2):
+`npm run init-db` is safe to re-run: it refuses to touch a database that
+already holds complaints. To deliberately wipe and rebuild:
+
+```bash
+npm run init-db -- --force   # drops every table, then recreates and reseeds
+```
+
+### 2. Frontend (terminal 2)
 
 ```bash
 cd frontend
-node serve.js          # → http://localhost:5173
+cp env/config.example.js env/config.js   # first time only
+node serve.js                            # → http://localhost:5173
 ```
 
 Then open **http://localhost:5173** and sign in.
 
+### Default logins
+
+Seeded by `init-db`. Admin can drive every stage of the workflow.
+
+| Role | Email | Password |
+|---|---|---|
+| Administrator | `admin@orientpaper.com` | `Admin@456` |
+| All other staff | see `db/seed.sql` | `Orient@123` |
+
 **To connect real SAP later:** set `SAP_USE_MOCK=false` in `backend/.env` and
 fill in the 4 SAP lines. Zero code changes anywhere else.
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `[DB] startup failed` on `npm start` | Postgres isn't running, or `.env` credentials are wrong |
+| `relation "complaints" does not exist` | You skipped `npm run init-db` |
+| `EADDRINUSE :::3000` | Another backend is already running on port 3000 |
 
 ---
 
@@ -54,12 +92,17 @@ fill in the 4 SAP lines. Zero code changes anywhere else.
 
 ```
 CCMS/
-├── backend/                       ← Express API (run: cd backend && npm start)
+├── backend/                       ← Express API + PostgreSQL
+│   ├── db/                            ← Database (run: npm run init-db)
+│   │   ├── schema.sql                 ← 18 tables: constraints, FKs, triggers
+│   │   ├── seed.sql                   ← Master data (idempotent)
+│   │   └── init.js                    ← One-command setup: create + schema + seed
 │   ├── src/
+│   │   ├── db/pool.js                 ← Connection pool, query helpers, type parsers
 │   │   ├── data/
-│   │   │   ├── masterData.js          ← All 9 master entities (Sections 3, 6.2, 9.1)
-│   │   │   ├── transactionalStore.js  ← All 7 transactional entities (Section 4, 6.3, 7.1)
-│   │   │   └── auditLog.js            ← Immutable audit log (Section 8.2, 12.6)
+│   │   │   ├── masterData.js          ← 9 master entities, cached at boot (Sections 3, 6.2, 9.1)
+│   │   │   ├── transactionalStore.js  ← 7 transactional entities, async (Section 4, 6.3, 7.1)
+│   │   │   └── auditLog.js            ← Append-only audit log (Section 8.2, 12.6)
 │   │   ├── services/
 │   │   │   ├── sapService.js          ← All 6 SAP integration touchpoints (Section 11)
 │   │   │   └── workflowService.js     ← 13-state machine + universal transition rule (Section 8)
@@ -69,7 +112,7 @@ CCMS/
 │   │   ├── middleware/auth.js         ← JWT auth, RBAC, status gates
 │   │   ├── utils/pagination.js        ← Bounded list responses
 │   │   └── server.js                  ← Express entry point
-│   ├── .env                       ← active config (git-ignore in prod)
+│   ├── .env                       ← active config — GIT-IGNORED (holds DB password)
 │   ├── .env.example
 │   └── package.json
 ├── frontend/                      ← Static SPA (run: cd frontend && node serve.js)
@@ -321,6 +364,12 @@ GET /api/complaints/COMP-2026-00001/audit-log
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | 3000 | Server port |
+| `PGHOST` | localhost | PostgreSQL host |
+| `PGPORT` | 5432 | PostgreSQL port |
+| `PGDATABASE` | ccms | Database name (created by `npm run init-db`) |
+| `PGUSER` | postgres | PostgreSQL user |
+| `PGPASSWORD` | — | **Required.** Your PostgreSQL password — never commit it |
+| `PG_POOL_MAX` | 10 | Max pooled connections |
 | `SAP_USE_MOCK` | true | Switch to false for live SAP |
 | `SAP_BASE_URL` | — | SAP Gateway base URL |
 | `SAP_USERNAME` | — | SAP service account |

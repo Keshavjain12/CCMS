@@ -37,16 +37,21 @@ const { paginate } = require("../utils/pagination");
 // ─── HELPERS ─────────────────────────────────────────────────────────────
 
 /** Enrich a complaint with its related records for a full-picture response. */
-function enrich(complaint) {
+// The six child lookups are independent, so they run concurrently rather
+// than as six sequential round-trips.
+async function enrich(complaint) {
   if (!complaint) return null;
+  const [lineItems, attachments, samples, visits, capas, creditNotes] = await Promise.all([
+    lineItemStore.getForComplaint(complaint.complaintNo),
+    attachmentStore.getForComplaint(complaint.complaintNo),
+    sampleStore.getForComplaint(complaint.complaintNo),
+    visitStore.getForComplaint(complaint.complaintNo),
+    capaStore.getForComplaint(complaint.complaintNo),
+    creditNoteStore.getForComplaint(complaint.complaintNo),
+  ]);
   return {
     ...complaint,
-    lineItems:  lineItemStore.getForComplaint(complaint.complaintNo),
-    attachments: attachmentStore.getForComplaint(complaint.complaintNo),
-    samples:    sampleStore.getForComplaint(complaint.complaintNo),
-    visits:     visitStore.getForComplaint(complaint.complaintNo),
-    capas:      capaStore.getForComplaint(complaint.complaintNo),
-    creditNotes: creditNoteStore.getForComplaint(complaint.complaintNo),
+    lineItems, attachments, samples, visits, capas, creditNotes,
     statusSequence: workflow.getEffectiveSequence(complaint),
   };
 }
@@ -64,16 +69,17 @@ function enrich(complaint) {
 //     whose actorId is now stamped from the JWT, so it can't be spoofed).
 // The backend is the enforcer here; the frontend filters are only cosmetic.
 // =========================================================================
-function visibleToUser(user, complaint) {
+async function visibleToUser(user, complaint) {
   if (!complaint) return false;
   if (user.isAdmin || user.roleId === "R009") return true;
   if (complaint.reportedBy && complaint.reportedBy === user.userId) return true;
   if (canActOnStatus(user, complaint.status, null, complaint._priorStatus).allowed) return true;
-  return audit.getForComplaint(complaint.complaintNo).some((e) => e.actorId === user.userId);
+  const entries = await audit.getForComplaint(complaint.complaintNo);
+  return entries.some((e) => e.actorId === user.userId);
 }
 
-function denyIfHidden(req, res, complaint) {
-  if (visibleToUser(req.user, complaint)) return false;
+async function denyIfHidden(req, res, complaint) {
+  if (await visibleToUser(req.user, complaint)) return false;
   res.status(403).json({ error: "You are not authorised to view this complaint." });
   return true;
 }
@@ -227,7 +233,7 @@ router.post("/", async (req, res) => {
     );
 
     // ── 1d. Create complaint ──────────────────────────────────────────
-    const complaint = complaintStore.create({
+    const complaint = await complaintStore.create({
       title:                title || `Complaint for Invoice ${invoiceNumber}`,
       remarks:              remarks || "",
       invoiceNumber:        invoice.BillingDocument,
@@ -253,17 +259,19 @@ router.post("/", async (req, res) => {
     });
 
     // ── 1e. Persist line items ─────────────────────────────────────────
-    createdLineItems.forEach((li) => {
-      lineItemStore.create({ complaintNo: complaint.complaintNo, ...li });
-    });
+    // for...of, not forEach: forEach ignores the promise an async callback
+    // returns, so the inserts would race the response.
+    for (const li of createdLineItems) {
+      await lineItemStore.create({ complaintNo: complaint.complaintNo, ...li });
+    }
 
     // Persist attachments at creation (Stage 1 photos/videos)
-    (attachmentsInput || []).forEach((att) => {
-      attachmentStore.create({ complaintNo: complaint.complaintNo, ...att, uploadedBy: reportedBy });
-    });
+    for (const att of (attachmentsInput || [])) {
+      await attachmentStore.create({ complaintNo: complaint.complaintNo, ...att, uploadedBy: reportedBy });
+    }
 
     // ── Audit log ─────────────────────────────────────────────────────
-    audit.log({
+    await audit.log({
       complaintNo: complaint.complaintNo,
       fromStatus:  null,
       toStatus:    "Logged",
@@ -275,7 +283,7 @@ router.post("/", async (req, res) => {
     });
 
     if (!policyResult.compliant) {
-      audit.log({
+      await audit.log({
         complaintNo: complaint.complaintNo,
         action:      `Policy Flag: ${policyResult.clauseBreached}`,
         actorType:   "System",
@@ -286,7 +294,7 @@ router.post("/", async (req, res) => {
 
     res.status(201).json({
       success:     true,
-      complaint:   enrich(complaint),
+      complaint:   await enrich(complaint),
       policyAlert: policyResult.compliant ? null : policyResult,
       warnings:    sapFallback ? ["SAP invoice lookup failed — complaint created with manual data, pending validation"] : [],
     });
@@ -299,28 +307,36 @@ router.post("/", async (req, res) => {
 // LIST COMPLAINTS
 // GET /api/complaints?status=&customerId=&businessLine=
 // =========================================================================
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   // 1) store-level filters (status/customerId/businessLine)
   // 2) per-user visibility scoping — a user only receives complaints they are
   //    entitled to see (see visibleToUser). This is the real fix for the
   //    over-fetch / broken-access-control finding: the list no longer dumps
   //    every complaint to every authenticated role.
   // 3) ?limit/?offset bounding so the payload can't grow unbounded.
-  const visible = complaintStore.getAll(req.query).filter((c) => visibleToUser(req.user, c));
-  res.json(paginate(visible.map(enrich), req.query, "data"));
+  const all = await complaintStore.getAll(req.query);
+  // visibleToUser reads the audit trail, so it's async — resolve the checks
+  // concurrently, then filter on the results.
+  const canSee = await Promise.all(all.map((c) => visibleToUser(req.user, c)));
+  const visible = all.filter((_, i) => canSee[i]);
+  // Paginate FIRST, then enrich only the returned page: enrich() costs six
+  // queries per complaint, so enriching the whole list would be wasteful.
+  const page = paginate(visible, req.query, "data");
+  page.data = await Promise.all(page.data.map(enrich));
+  res.json(page);
 });
 
 // =========================================================================
 // GET SINGLE COMPLAINT
 // GET /api/complaints/:complaintNo
 // =========================================================================
-router.get("/:complaintNo", (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+router.get("/:complaintNo", async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: `Complaint ${req.params.complaintNo} not found` });
   // IDOR guard: enumerating complaint numbers must not reveal complaints the
   // caller isn't entitled to see.
-  if (denyIfHidden(req, res, complaint)) return;
-  res.json(enrich(complaint));
+  if (await denyIfHidden(req, res, complaint)) return;
+  res.json(await enrich(complaint));
 });
 
 // =========================================================================
@@ -329,11 +345,11 @@ router.get("/:complaintNo", (req, res) => {
 // Body: { action, actorId, actorRole, remarks }
 // Actions: approve | reject | clarify | resolve_clarification | auto_close
 // =========================================================================
-router.post("/:complaintNo/action", (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+router.post("/:complaintNo/action", async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
-  complaint._latestSample = sampleStore.getLatestForComplaint(complaint.complaintNo);
+  complaint._latestSample = await sampleStore.getLatestForComplaint(complaint.complaintNo);
 
   const { action, remarks } = req.body;
   if (!action) return res.status(400).json({ error: "action is required" });
@@ -354,9 +370,9 @@ router.post("/:complaintNo/action", (req, res) => {
   if (result.newStatus === "Closed") updates.closedAt = new Date().toISOString();
   if (result.priorStatus) updates._priorStatus = result.priorStatus;
 
-  complaintStore.update(complaint.complaintNo, updates);
+  await complaintStore.update(complaint.complaintNo, updates);
 
-  audit.log({
+  await audit.log({
     complaintNo: complaint.complaintNo,
     fromStatus:  oldStatus,
     toStatus:    result.newStatus,
@@ -368,7 +384,7 @@ router.post("/:complaintNo/action", (req, res) => {
   });
 
   // Fire notification async — does not block the response
-  const updatedComplaint = complaintStore.getByNo(complaint.complaintNo);
+  const updatedComplaint = await complaintStore.getByNo(complaint.complaintNo);
   notify.sendNotification({
     complaint:  updatedComplaint,
     newStatus:  result.newStatus,
@@ -386,7 +402,7 @@ router.post("/:complaintNo/action", (req, res) => {
       status: "queued",
       hint:   notify.MODE === "mock" ? "Check server console or GET /api/notifications" : "Emails dispatched",
     },
-    complaint:   enrich(updatedComplaint),
+    complaint:   await enrich(updatedComplaint),
   });
 });
 
@@ -395,7 +411,7 @@ router.post("/:complaintNo/action", (req, res) => {
 // POST /api/complaints/:complaintNo/line-items
 // =========================================================================
 router.post("/:complaintNo/line-items", async (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
   if (!["Draft", "Logged"].includes(complaint.status)) {
     return res.status(422).json({ error: "Line items can only be added in Draft or Logged status" });
@@ -437,7 +453,7 @@ router.post("/:complaintNo/line-items", async (req, res) => {
     invoiceQty = parseFloat(req.body.invoiceQty || 0);
   }
 
-  const li = lineItemStore.create({
+  const li = await lineItemStore.create({
     complaintNo:      complaint.complaintNo,
     invoiceNumber:    complaint.invoiceNumber,
     invoiceItemNo, sapMaterialNo: mat, productName: name,
@@ -451,12 +467,12 @@ router.post("/:complaintNo/line-items", async (req, res) => {
   });
 
   // Recalculate settlement value
-  const newTotal = lineItemStore.getTotalDefectiveValue(complaint.complaintNo);
-  complaintStore.update(complaint.complaintNo, { settlementValue: newTotal });
+  const newTotal = await lineItemStore.getTotalDefectiveValue(complaint.complaintNo);
+  await complaintStore.update(complaint.complaintNo, { settlementValue: newTotal });
 
   // Update sampleRequired flag if this line item needs it
   if (cType?.sampleRequired && !complaint.sampleRequired) {
-    complaintStore.update(complaint.complaintNo, { sampleRequired: true });
+    await complaintStore.update(complaint.complaintNo, { sampleRequired: true });
   }
 
   res.status(201).json({ success: true, lineItem: li, newSettlementValue: newTotal });
@@ -466,11 +482,11 @@ router.post("/:complaintNo/line-items", async (req, res) => {
 // ADD ATTACHMENT
 // POST /api/complaints/:complaintNo/attachments
 // =========================================================================
-router.post("/:complaintNo/attachments", (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+router.post("/:complaintNo/attachments", async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
-  const att = attachmentStore.create({
+  const att = await attachmentStore.create({
     complaintNo: complaint.complaintNo,
     ...req.body,
   });
@@ -482,12 +498,12 @@ router.post("/:complaintNo/attachments", (req, res) => {
 // POST /api/complaints/:complaintNo/samples        → Create sample record
 // PUT  /api/complaints/:complaintNo/samples/:sampleId → Update status
 // =========================================================================
-router.post("/:complaintNo/samples", requireRoles(["R003","R004"]), (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+router.post("/:complaintNo/samples", requireRoles(["R003","R004"]), async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
   const sType = masterData.findSampleType(req.body.sampleTypeId);
-  const sample = sampleStore.create({
+  const sample = await sampleStore.create({
     complaintNo:    complaint.complaintNo,
     sampleTypeName: sType?.sampleTypeName,
     ...req.body,
@@ -495,9 +511,9 @@ router.post("/:complaintNo/samples", requireRoles(["R003","R004"]), (req, res) =
   });
 
   // Update complaint's sample reference
-  complaintStore.update(complaint.complaintNo, { _latestSample: sample });
+  await complaintStore.update(complaint.complaintNo, { _latestSample: sample });
 
-  audit.log({
+  await audit.log({
     complaintNo: complaint.complaintNo,
     action:      `Sample Created (${sType?.sampleTypeName || req.body.sampleTypeId}) — Status: Awaited`,
     actorType:   "User",
@@ -508,8 +524,8 @@ router.post("/:complaintNo/samples", requireRoles(["R003","R004"]), (req, res) =
   res.status(201).json({ success: true, sample });
 });
 
-router.put("/:complaintNo/samples/:sampleId", requireRoles(["R003","R004"]), (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+router.put("/:complaintNo/samples/:sampleId", requireRoles(["R003","R004"]), async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
   const { sampleStatus, receivedBy, receivedDate, testResult, testResultNotes, testReportReference, disposalDate } = req.body;
@@ -528,13 +544,13 @@ router.put("/:complaintNo/samples/:sampleId", requireRoles(["R003","R004"]), (re
   if (testReportReference)  updates.testReportReference = testReportReference;
   if (disposalDate)         updates.disposalDate = disposalDate;
 
-  const sample = sampleStore.update(req.params.sampleId, updates);
+  const sample = await sampleStore.update(req.params.sampleId, updates);
   if (!sample) return res.status(404).json({ error: "Sample not found" });
 
   // Sync latest sample reference on complaint
-  complaintStore.update(complaint.complaintNo, { _latestSample: sample });
+  await complaintStore.update(complaint.complaintNo, { _latestSample: sample });
 
-  audit.log({
+  await audit.log({
     complaintNo: complaint.complaintNo,
     action:      `Sample Updated — New Status: ${sampleStatus || "unchanged"}`,
     actorType:   "User",
@@ -551,13 +567,13 @@ router.put("/:complaintNo/samples/:sampleId", requireRoles(["R003","R004"]), (re
 // POST /api/complaints/:complaintNo/visits        → Schedule visit
 // PUT  /api/complaints/:complaintNo/visits/:visitId → Update outcome
 // =========================================================================
-router.post("/:complaintNo/visits", requireRoles(["R010","R011"]), (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+router.post("/:complaintNo/visits", requireRoles(["R010","R011"]), async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
   // Determine visit type
   const isMandatory = workflow.requiresVisit(complaint);
-  const visit = visitStore.create({
+  const visit = await visitStore.create({
     complaintNo:   complaint.complaintNo,
     visitType:     req.body.visitType || (isMandatory ? "Mandatory" : "Optional"),
     triggerReason: req.body.triggerReason || (isMandatory ? "Settlement threshold / Key account" : "Sales discretion"),
@@ -566,9 +582,9 @@ router.post("/:complaintNo/visits", requireRoles(["R010","R011"]), (req, res) =>
   });
 
   // Flag visit on complaint
-  complaintStore.update(complaint.complaintNo, { visitRequested: true });
+  await complaintStore.update(complaint.complaintNo, { visitRequested: true });
 
-  audit.log({
+  await audit.log({
     complaintNo: complaint.complaintNo,
     action:      `Customer Visit Scheduled — Type: ${visit.visitType}`,
     actorType:   "User",
@@ -580,17 +596,17 @@ router.post("/:complaintNo/visits", requireRoles(["R010","R011"]), (req, res) =>
   res.status(201).json({ success: true, visit });
 });
 
-router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
   const { visitStatus, visitDate, findings, customerAcknowledgement, outcome } = req.body;
-  const visit = visitStore.update(req.params.visitId, {
+  const visit = await visitStore.update(req.params.visitId, {
     visitStatus, visitDate, findings, customerAcknowledgement, outcome,
   });
   if (!visit) return res.status(404).json({ error: "Visit not found" });
 
-  audit.log({
+  await audit.log({
     complaintNo: complaint.complaintNo,
     action:      `Customer Visit Updated — Status: ${visitStatus || "unchanged"}, Outcome: ${outcome || "TBD"}`,
     actorType:   "User",
@@ -605,8 +621,8 @@ router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), (req,
 // CAPA MANAGEMENT  —  Section 4
 // POST /api/complaints/:complaintNo/capa
 // =========================================================================
-router.post("/:complaintNo/capa", requireRoles(["R005","R006"]), (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+router.post("/:complaintNo/capa", requireRoles(["R005","R006"]), async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
   if (!["CAPA_Pending", "QC_Review", "Sample_Awaited"].includes(complaint.status)) {
     return res.status(422).json({ error: `CAPA can only be documented in QC_Review, Sample_Awaited, or CAPA_Pending status. Current: ${complaint.status}` });
@@ -615,7 +631,7 @@ router.post("/:complaintNo/capa", requireRoles(["R005","R006"]), (req, res) => {
   if (!req.body.correctiveAction)     return res.status(400).json({ error: "correctiveAction is required" });
   if (!req.body.preventiveAction)     return res.status(400).json({ error: "preventiveAction is required" });
 
-  const capa = capaStore.create({
+  const capa = await capaStore.create({
     complaintNo:          complaint.complaintNo,
     sampleTestReference:  req.body.sampleTestReference,
     ...req.body,
@@ -624,7 +640,7 @@ router.post("/:complaintNo/capa", requireRoles(["R005","R006"]), (req, res) => {
     documentedByName:     req.user.name,
   });
 
-  audit.log({
+  await audit.log({
     complaintNo: complaint.complaintNo,
     action:      "CAPA Documented",
     actorType:   "User",
@@ -642,7 +658,7 @@ router.post("/:complaintNo/capa", requireRoles(["R005","R006"]), (req, res) => {
 // Triggered at Finance_Processing status; pushes to SAP and writes back CN number.
 // =========================================================================
 router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
   if (complaint.status !== "Finance_Processing") {
@@ -655,10 +671,10 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
   }
 
   try {
-    const items = lineItemStore.getForComplaint(complaint.complaintNo);
+    const items = await lineItemStore.getForComplaint(complaint.complaintNo);
 
     // SAP Call — Touchpoint 5: CCMS → SAP
-    audit.log({
+    await audit.log({
       complaintNo: complaint.complaintNo,
       action:      "SAP Credit Note Request Sent",
       actorType:   "System",
@@ -678,7 +694,7 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
     });
 
     // SAP Call — Touchpoint 6: Credit Note number written back to CCMS
-    const cn = creditNoteStore.create({
+    const cn = await creditNoteStore.create({
       complaintNo:       complaint.complaintNo,
       creditNoteNumber:  sapResult.CreditNoteNumber,
       sapDocumentNumber: sapResult.SapDocumentNumber,
@@ -691,11 +707,11 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
     });
 
     // Update complaint with credit note number (enables Closed transition)
-    complaintStore.update(complaint.complaintNo, {
+    await complaintStore.update(complaint.complaintNo, {
       creditNoteNumber: sapResult.CreditNoteNumber,
     });
 
-    audit.log({
+    await audit.log({
       complaintNo: complaint.complaintNo,
       action:      `SAP Credit Note Created — ${sapResult.CreditNoteNumber}`,
       actorType:   "System",
@@ -704,7 +720,7 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
       remarks:     `SAP Document: ${sapResult.SapDocumentNumber}`,
     });
 
-    audit.log({
+    await audit.log({
       complaintNo: complaint.complaintNo,
       action:      "Credit Note Recorded by Finance",
       actorType:   "User",
@@ -719,7 +735,7 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
       message:    `Credit Note ${sapResult.CreditNoteNumber} raised in SAP. Complaint is ready to close — call POST /action with action=approve.`,
     });
   } catch (err) {
-    audit.log({
+    await audit.log({
       complaintNo: complaint.complaintNo,
       action:      `SAP Credit Note Push FAILED: ${err.message}`,
       actorType:   "System",
@@ -734,15 +750,15 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
 // AUDIT LOG
 // GET /api/complaints/:complaintNo/audit-log
 // =========================================================================
-router.get("/:complaintNo/audit-log", (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+router.get("/:complaintNo/audit-log", async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
-  if (denyIfHidden(req, res, complaint)) return;
+  if (await denyIfHidden(req, res, complaint)) return;
   const audit_data = require("../data/auditLog");
   res.json({
     complaintNo: complaint.complaintNo,
     currentStatus: complaint.status,
-    entries: audit_data.getForComplaint(complaint.complaintNo),
+    entries: await audit_data.getForComplaint(complaint.complaintNo),
   });
 });
 
@@ -750,10 +766,10 @@ router.get("/:complaintNo/audit-log", (req, res) => {
 // WORKFLOW STATUS SEQUENCE
 // GET /api/complaints/:complaintNo/status-sequence
 // =========================================================================
-router.get("/:complaintNo/status-sequence", (req, res) => {
-  const complaint = complaintStore.getByNo(req.params.complaintNo);
+router.get("/:complaintNo/status-sequence", async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
-  if (denyIfHidden(req, res, complaint)) return;
+  if (await denyIfHidden(req, res, complaint)) return;
   res.json({
     complaintNo:    complaint.complaintNo,
     currentStatus:  complaint.status,

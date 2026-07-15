@@ -185,9 +185,9 @@ app.get("/api/sla/breaches", authenticate, requireRoles(GLOBAL_VIEW_ROLES), (req
 const kpi = require("./services/kpiService");
 
 // GET /api/kpi — full live dashboard
-app.get("/api/kpi", authenticate, (req, res) => {
+app.get("/api/kpi", authenticate, async (req, res) => {
   try {
-    const data = kpi.computeKPIs();
+    const data = await kpi.computeKPIs();
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -195,9 +195,9 @@ app.get("/api/kpi", authenticate, (req, res) => {
 });
 
 // GET /api/kpi/summary — lightweight summary only (for quick health check)
-app.get("/api/kpi/summary", authenticate, (req, res) => {
+app.get("/api/kpi/summary", authenticate, async (req, res) => {
   try {
-    const data = kpi.computeKPIs();
+    const data = await kpi.computeKPIs();
     res.json({
       generatedAt:    data.generatedAt,
       summary:        data.summary,
@@ -271,21 +271,47 @@ app.get("/api/rollout", authenticate, requireRoles(ADMIN_ONLY), (req, res) => {
 // GET /api/audit-log/verify — verify audit log integrity (Section 12.6).
 // Part of the audit surface → same privileged roles as the log itself.
 const auditModule = require("./data/auditLog");
-app.get("/api/audit-log/verify", authenticate, requireRoles(GLOBAL_VIEW_ROLES), (req, res) => {
-  res.json(auditModule.verifyIntegrity());
+app.get("/api/audit-log/verify", authenticate, requireRoles(GLOBAL_VIEW_ROLES), async (req, res) => {
+  try {
+    res.json(await auditModule.verifyIntegrity());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  // Start SLA background engine after server is up
-  sla.startSlaEngine();
-  // Start Archival engine (Section 12.7)
-  archive.startArchivalEngine();
-  console.log(`\n╔══════════════════════════════════════════════════════╗`);
-  console.log(`║  Orient Paper & Mill — CCMS                          ║`);
-  console.log(`║  http://localhost:${PORT}                               ║`);
-  console.log(`║  SAP Mode : ${sap.USE_MOCK ? "MOCK (safe to test)              " : "LIVE SAP                        "}║`);
-  console.log(`║  Auth     : JWT — POST /api/auth/login               ║`);
-  console.log(`╚══════════════════════════════════════════════════════╝\n`);
-});
+const db = require("./db/pool");
+const masterData = require("./data/masterData");
+
+// Master data is cached in memory, so it must be loaded BEFORE the server
+// accepts traffic — otherwise early requests would see empty lookups and
+// silently mis-route. A DB failure here is fatal by design: better to refuse
+// to start than to serve a half-configured system.
+(async () => {
+  try {
+    const health = await db.healthcheck();
+    const counts = await masterData.load();
+    console.log(`\n🗄️  [DB] connected → ${health.database} (${health.version})`);
+    console.log(`   master data loaded: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+  } catch (err) {
+    console.error("\n❌ [DB] startup failed:", err.message);
+    console.error("   Check PGHOST/PGDATABASE/PGUSER/PGPASSWORD in .env, and that");
+    console.error("   the schema is loaded:  psql -U postgres -d ccms -f db/schema.sql\n");
+    process.exit(1);
+  }
+
+  app.listen(PORT, () => {
+    // Start SLA background engine after server is up
+    sla.startSlaEngine();
+    // Start Archival engine (Section 12.7)
+    archive.startArchivalEngine();
+    console.log(`\n╔══════════════════════════════════════════════════════╗`);
+    console.log(`║  Orient Paper & Mill — CCMS                          ║`);
+    console.log(`║  http://localhost:${PORT}                               ║`);
+    console.log(`║  SAP Mode : ${sap.USE_MOCK ? "MOCK (safe to test)              " : "LIVE SAP                        "}║`);
+    console.log(`║  Store    : PostgreSQL (persistent)                  ║`);
+    console.log(`║  Auth     : JWT — POST /api/auth/login               ║`);
+    console.log(`╚══════════════════════════════════════════════════════╝\n`);
+  });
+})();

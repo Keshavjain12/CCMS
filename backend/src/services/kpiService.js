@@ -52,9 +52,9 @@ const TERMINAL = new Set(["Closed", "Auto_Closed"]);
 const NEGATIVE_ACTIONS = new Set(["Reject", "Clarify"]);
 
 // ── Main KPI Calculator ───────────────────────────────────────────────────
-function computeKPIs() {
-  const all       = complaintStore.getAll();
-  const auditAll  = audit.getAll();
+async function computeKPIs() {
+  const all       = await complaintStore.getAll();
+  const auditAll  = await audit.getAll();
   const breaches  = sla.getAllBreaches();
   const now       = new Date().toISOString();
 
