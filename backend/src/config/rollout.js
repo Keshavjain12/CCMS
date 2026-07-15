@@ -72,6 +72,20 @@ const PHASE_CONFIG = {
 
 const currentPhase = PHASE_CONFIG[ROLLOUT_PHASE] || PHASE_CONFIG[1];
 
+// ── Region normalisation ──────────────────────────────────────────────────
+// Region names reach us from SAP customer master, where the wording is not
+// controlled: "Northern India", "North India" and "North" all name the same
+// pilot region. Comparing the raw strings meant the gate matched on spelling
+// rather than meaning — every real customer fell outside every phase. Reduce
+// both sides to a bare direction before comparing.
+const REGION_ALIASES = { northern: "north", southern: "south", eastern: "east", western: "west" };
+
+function normalizeRegion(region) {
+  if (!region) return null;
+  const word = String(region).toLowerCase().replace(/india/g, "").replace(/[^a-z]/g, "");
+  return REGION_ALIASES[word] || word || null;
+}
+
 // ── Gate checker ──────────────────────────────────────────────────────────
 function checkRolloutGate(businessLine, region) {
   // Phase 3 = no restrictions
@@ -89,8 +103,9 @@ function checkRolloutGate(businessLine, region) {
 
   // Region check (if provided)
   if (region && currentPhase.allowedRegions !== "*") {
+    const wanted = normalizeRegion(region);
     const regionAllowed = currentPhase.allowedRegions.some(
-      (r) => r.toLowerCase() === region.toLowerCase()
+      (r) => normalizeRegion(r) === wanted
     );
     if (!regionAllowed) {
       return {

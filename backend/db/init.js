@@ -15,9 +15,71 @@ require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
 const { Client } = require("pg");
+const { publishedHashes, issuePassword } = require("./credentials");
 
 const FORCE = process.argv.includes("--force");
 const DB_NAME = process.env.PGDATABASE || "ccms";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+// ── Published credentials ─────────────────────────────────────────────────
+// seed.sql carries fixed password_hash values and README.md prints the
+// passwords behind them, so the sandbox is usable on a fresh clone. This
+// repository is public, so those passwords are public: seeded into a
+// reachable deployment they hand anyone an Admin login. Withholding them from
+// the API achieves nothing while the README discloses them — the credentials
+// themselves have to go.
+//
+// So in production every account still carrying one of those hashes gets a
+// fresh random password, printed once. Accounts already given a real password
+// are untouched — their hash is not one of these — so a re-run cannot lock out
+// users provisioned earlier. Lost one? npm run reset-password (no data loss).
+async function rotatePublishedCredentials(client) {
+  const hashes = publishedHashes();
+  if (!hashes.length) return [];
+
+  const { rows } = await client.query(
+    "SELECT user_id, email FROM users WHERE password_hash = ANY($1) ORDER BY user_id",
+    [hashes]
+  );
+  const issued = [];
+  for (const u of rows) {
+    issued.push({ email: u.email, password: await issuePassword(client, u.user_id) });
+  }
+  return issued;
+}
+
+// Tables holding data seed.sql cannot recreate — everything the users and the
+// background engines produced. init-db refuses when any of them holds a row.
+//
+// The ten master-data tables are deliberately absent: they are reseeded
+// verbatim from seed.sql, so rebuilding them loses nothing, and guarding them
+// would make init-db refuse on every run after the first — turning --force
+// into muscle memory and defeating the guard entirely.
+//
+// audit_log earns its place on its own: complaint_no is nullable and carries
+// no FK, so it keeps rows even when complaints is empty.
+const TRANSACTIONAL_TABLES = [
+  "complaints",
+  "complaint_line_items",
+  "attachments",
+  "samples",
+  "visits",
+  "capa_records",
+  "credit_notes",
+  "audit_log",
+];
+
+/** Transactional tables that exist and hold at least one row. */
+async function findTransactionalData(client) {
+  const found = [];
+  for (const table of TRANSACTIONAL_TABLES) {
+    const reg = await client.query("SELECT to_regclass($1) AS t", [`public.${table}`]);
+    if (!reg.rows[0].t) continue; // not created yet — nothing to lose
+    const { rows } = await client.query(`SELECT count(*)::int AS n FROM "${table}"`);
+    if (rows[0].n > 0) found.push({ table, n: rows[0].n });
+  }
+  return found;
+}
 
 const baseConfig = {
   host:     process.env.PGHOST || "localhost",
@@ -64,13 +126,13 @@ async function main() {
   const client = new Client({ ...baseConfig, database: DB_NAME });
   await client.connect();
 
-  const tableCheck = await client.query("SELECT to_regclass('public.complaints') AS t");
-  if (tableCheck.rows[0].t && !FORCE) {
-    const { rows } = await client.query("SELECT count(*)::int AS n FROM complaints");
-    if (rows[0].n > 0) {
+  if (!FORCE) {
+    const holdings = await findTransactionalData(client);
+    if (holdings.length) {
       await client.end();
-      fail(`"${DB_NAME}" already holds ${rows[0].n} complaint(s) — refusing to wipe them.`,
-           "schema.sql drops every table. Re-run as:  npm run init-db -- --force");
+      const summary = holdings.map(({ table, n }) => `${n} ${table}`).join(", ");
+      fail(`"${DB_NAME}" already holds transactional data — refusing to wipe it.`,
+           `Found: ${summary}.\n   schema.sql drops every table. Re-run as:  npm run init-db -- --force`);
     }
   }
 
@@ -84,6 +146,12 @@ async function main() {
       await client.end();
       fail(`${file} failed: ${err.message}`);
     }
+  }
+
+  // ── 3b. Replace the published credentials in production ───────────────
+  let issued = [];
+  if (IS_PRODUCTION) {
+    issued = await rotatePublishedCredentials(client);
   }
 
   // ── 4. Report ─────────────────────────────────────────────────────────
@@ -104,6 +172,29 @@ async function main() {
   console.log(`   seeded: ${r.departments} departments, ${r.roles} roles, ${r.users} users,`);
   console.log(`           ${r.customers} customers, ${r.products} products, ${r.complaint_types} complaint types,`);
   console.log(`           ${r.sales_policies} sales policies, ${r.invoices} invoices`);
+
+  if (IS_PRODUCTION) {
+    if (issued.length) {
+      // Printed once and never recoverable: only the bcrypt hash is stored.
+      // Losing these means re-running with --force, not reading them back.
+      console.log(`\n🔑 NODE_ENV=production — the ${issued.length} seeded account(s) had passwords`);
+      console.log(`   published in README.md. Each has been given a new random one.`);
+      console.log(`   This is the only time they are shown. Save them now — if one is`);
+      console.log(`   lost, reissue it with:  npm run reset-password -- <email>\n`);
+      const width = Math.max(...issued.map((i) => i.email.length));
+      for (const { email, password } of issued) {
+        console.log(`     ${email.padEnd(width)}   ${password}`);
+      }
+      console.log(`\n   Nothing published in this repository can sign in to this database.`);
+    } else {
+      console.log(`\n🔑 NODE_ENV=production — no account carries a password published in this`);
+      console.log(`   repository, so none needed replacing.`);
+    }
+  } else {
+    console.log(`\n   Sandbox logins are the ones in README.md — they are public, and fine`);
+    console.log(`   here. Seeding with NODE_ENV=production replaces them automatically.`);
+  }
+
   console.log(`\n   Next:  npm start\n`);
 
   await client.end();

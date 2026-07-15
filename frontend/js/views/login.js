@@ -35,7 +35,7 @@ CCMS.views.login = function (mount) {
       CCMS.ui.toast("Welcome, " + (user.name || "") + "!", "success");
       location.hash = "#/dashboard";
     } catch (err) {
-      showErr(err.message || "Login failed.");
+      showErr(CCMS.ui.humanError(err));
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = "Sign in";
@@ -70,7 +70,7 @@ CCMS.views.login = function (mount) {
       el("li", { text: "Full complaint lifecycle with SAP S/4HANA integration" }),
       el("li", { text: "JWT-secured — every action authorised by role & stage" }),
     ]),
-    el("div.hero-foot", { text: "Secured with JWT Bearer authentication" }),
+    el("div.hero-foot", { text: "Secured with a JWT in an httpOnly cookie" }),
   ]);
 
   const card = el("div.login-card", {}, [

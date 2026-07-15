@@ -23,7 +23,19 @@ CCMS.views.dashboard = async function (mount) {
   mount.appendChild(kpiRow);
   mount.appendChild(el("div.grid-2", {}, [queueCard, pipeCard]));
 
-  kpiRow.appendChild(CCMS.ui.spinner("Loading KPIs…"));
+  // Skeletons, not a spinner on a blank page: the tiles hold their shape while
+  // loading, so nothing jumps when the numbers land.
+  CCMS.ui.clear(kpiRow);
+  kpiRow.appendChild(CCMS.ui.el("div.skel.skel-tile"));
+  kpiRow.appendChild(CCMS.ui.el("div.skel.skel-tile"));
+  kpiRow.appendChild(CCMS.ui.el("div.skel.skel-tile"));
+  kpiRow.appendChild(CCMS.ui.el("div.skel.skel-tile"));
+  kpiRow.appendChild(CCMS.ui.el("div.skel.skel-tile"));
+  kpiRow.appendChild(CCMS.ui.el("div.skel.skel-tile"));
+  queueCard.appendChild(CCMS.ui.el("div.skel.skel-title"));
+  queueCard.appendChild(CCMS.ui.skelRows(3));
+  pipeCard.appendChild(CCMS.ui.el("div.skel.skel-title"));
+  pipeCard.appendChild(CCMS.ui.skelLines(4));
 
   try {
     const [kpi, list] = await Promise.all([
@@ -65,7 +77,7 @@ CCMS.views.dashboard = async function (mount) {
       ])));
       const tb = el("tbody");
       myQueue.slice(0, 8).forEach((c) => {
-        tb.appendChild(el("tr.row-link", { onClick: () => CCMS.router.go("#/complaints/" + c.complaintNo) }, [
+        tb.appendChild(CCMS.ui.rowLink("Open " + c.complaintNo, () => CCMS.router.go("#/complaints/" + c.complaintNo), [
           el("td", {}, [el("strong", { text: c.complaintNo })]),
           el("td", { text: c.customerName || "—" }),
           el("td", {}, [statusBadge(c.status)]),
@@ -105,18 +117,43 @@ CCMS.views.dashboard = async function (mount) {
     }
   } catch (err) {
     CCMS.ui.clear(kpiRow);
-    mount.appendChild(CCMS.ui.errorBox(err.message));
+    mount.appendChild(CCMS.ui.errorBox(err));
   }
 
   // ── helpers ──
   function tiles(host, defs) {
     defs.forEach((d) => {
+      const value = el("div.kpi-value" + (d.small ? ".sm" : ""), { text: String(d.value) });
       host.appendChild(el("div.kpi-tile" + (d.accent ? ".accent" : ""), {}, [
-        el("div.kpi-value" + (d.small ? ".sm" : ""), { text: String(d.value) }),
+        value,
         el("div.kpi-label", { text: d.label }),
         d.sub ? el("div.kpi-sub", { text: d.sub }) : null,
       ]));
+      countUp(value, d.value);
     });
+  }
+
+  /**
+   * Count a plain number up on load. Skipped for anything that is not purely
+   * numeric — money tiles arrive pre-formatted (₹1,20,500) and animating them
+   * would mean re-formatting on every frame. Skipped entirely under
+   * prefers-reduced-motion, where the final value is simply shown.
+   */
+  function countUp(node, raw) {
+    const target = typeof raw === "number" ? raw : NaN;
+    if (!Number.isFinite(target) || target <= 0) return;
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const DURATION = 650;
+    const start = performance.now();
+    function frame(now) {
+      const t = Math.min(1, (now - start) / DURATION);
+      // ease-out: fast first, settling — reads as "counting", not "ticking".
+      const eased = 1 - Math.pow(1 - t, 3);
+      node.textContent = String(Math.round(target * eased));
+      if (t < 1) requestAnimationFrame(frame);
+      else node.textContent = String(target);   // land exactly on the real value
+    }
+    requestAnimationFrame(frame);
   }
   function groupBy(arr, key) {
     return arr.reduce((m, x) => { (m[x[key]] = m[x[key]] || []).push(x); return m; }, {});

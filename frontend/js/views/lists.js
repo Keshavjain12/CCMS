@@ -49,7 +49,7 @@ CCMS.views.notifications = async function (mount) {
         n.body ? el("div.tl-remarks", { text: n.body }) : null,
       ]));
     });
-  } catch (err) { CCMS.ui.clear(card); card.appendChild(CCMS.ui.errorBox(err.message)); }
+  } catch (err) { CCMS.ui.clear(card); card.appendChild(CCMS.ui.errorBox(err)); }
 
   function fmtTo(to) { return Array.isArray(to) ? to.join(", ") : (to || "—"); }
 };
@@ -74,13 +74,14 @@ CCMS.views.sla = async function (mount) {
     const items = res.breaches || [];
     if (!items.length) { card.appendChild(CCMS.ui.empty("No SLA breaches — everything is on time.")); return; }
     const t = el("table.table");
+    const scroll = el("div.table-scroll", {}, [t]);
     t.appendChild(el("thead", {}, el("tr", {}, [
       el("th", { text: "Complaint" }), el("th", { text: "Status" }), el("th", { text: "Type" }),
       el("th", { text: "Age" }), el("th", { text: "Detected" }),
     ])));
     const tb = el("tbody");
     items.forEach((b) => {
-      tb.appendChild(el("tr.row-link", { onClick: () => b.complaintNo && CCMS.router.go("#/complaints/" + b.complaintNo) }, [
+      tb.appendChild(CCMS.ui.rowLink("Open " + (b.complaintNo || "complaint"), () => b.complaintNo && CCMS.router.go("#/complaints/" + b.complaintNo), [
         el("td", {}, [el("strong", { text: b.complaintNo || "—" })]),
         el("td", {}, [CCMS.ui.statusBadge(b.status)]),
         el("td", {}, [CCMS.ui.pill(b.breachType || b.type || "SLA", "pill-danger")]),
@@ -89,8 +90,8 @@ CCMS.views.sla = async function (mount) {
       ]));
     });
     t.appendChild(tb);
-    card.appendChild(t);
-  } catch (err) { CCMS.ui.clear(card); card.appendChild(CCMS.ui.errorBox(err.message)); }
+    card.appendChild(scroll);
+  } catch (err) { CCMS.ui.clear(card); card.appendChild(CCMS.ui.errorBox(err)); }
 };
 
 // ── Global audit log ───────────────────────────────────────
@@ -124,13 +125,17 @@ CCMS.views.audit = async function (mount) {
       ]));
     });
     card.appendChild(tl);
-  } catch (err) { CCMS.ui.clear(card); card.appendChild(CCMS.ui.errorBox(err.message)); }
+  } catch (err) { CCMS.ui.clear(card); card.appendChild(CCMS.ui.errorBox(err)); }
 
   async function verify() {
     try {
       const res = await CCMS.api.get("/api/audit-log/verify");
-      const ok = res.valid || res.intact || res.ok;
-      CCMS.ui.toast("Integrity: " + (ok ? "VALID ✓" : "TAMPERED ✗") + (res.entries ? " (" + res.entries + " entries)" : ""), ok ? "success" : "error");
-    } catch (err) { CCMS.ui.toast(err.message, "error"); }
+      // Keys per GET /api/audit-log/verify: { totalEntries, valid,
+      // tamperedCount, tampered }. It reported `res.entries`, which the
+      // endpoint does not return, so the count never appeared.
+      const ok = res.valid;
+      CCMS.ui.toast("Integrity: " + (ok ? "VALID ✓" : "TAMPERED ✗ (" + res.tamperedCount + " altered)")
+        + (res.totalEntries != null ? " — " + res.totalEntries + " entries checked" : ""), ok ? "success" : "error");
+    } catch (err) { CCMS.ui.errorToast(err); }
   }
 };

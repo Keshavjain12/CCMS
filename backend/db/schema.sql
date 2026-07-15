@@ -236,13 +236,28 @@ CREATE TABLE complaints (
     sap_validation_pending  boolean       NOT NULL DEFAULT false,
     credit_note_number      varchar(30),
 
+    -- Background engine state (Sections 12.2, 12.7). Both engines have to know
+    -- what they have already done to a complaint, and must still know it after
+    -- a restart — otherwise the SLA engine re-sends every escalation and the
+    -- archival engine re-archives every eligible complaint on the next tick.
+    sla_breached            boolean       NOT NULL DEFAULT false,
+    sla_breached_at         timestamptz,
+    -- Which stage the breach was raised against: a complaint that moves on and
+    -- then goes stale again is a new breach, not the old one.
+    sla_breached_status     varchar(30),
+    archived                boolean       NOT NULL DEFAULT false,
+    archived_at             timestamptz,
+
     created_at              timestamptz   NOT NULL DEFAULT now(),
     updated_at              timestamptz   NOT NULL DEFAULT now(),
     closed_at               timestamptz,
 
     -- A complaint may only carry a closed_at once it is actually terminal.
     CONSTRAINT closed_at_only_when_terminal
-        CHECK (closed_at IS NULL OR status IN ('Closed','Auto_Closed'))
+        CHECK (closed_at IS NULL OR status IN ('Closed','Auto_Closed')),
+    -- Archival only ever applies to a closed complaint (Section 12.7).
+    CONSTRAINT archived_only_when_closed
+        CHECK (archived = false OR status IN ('Closed','Auto_Closed'))
 );
 COMMENT ON TABLE complaints IS 'Section 4 — complaint header. Status sequence per Section 8.';
 COMMENT ON COLUMN complaints.prior_status IS 'Status to return to when Clarification_Sought is resolved, or on reject.';

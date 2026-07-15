@@ -53,7 +53,7 @@ CCMS.views.complaints = async function (mount) {
     all = res.data || [];
   } catch (err) {
     CCMS.ui.clear(listCard);
-    listCard.appendChild(CCMS.ui.errorBox(err.message));
+    listCard.appendChild(CCMS.ui.errorBox(err));
     return;
   }
 
@@ -88,6 +88,7 @@ CCMS.views.complaints = async function (mount) {
     }
 
     const t = el("table.table");
+    const scroll = el("div.table-scroll", {}, [t]);
     t.appendChild(el("thead", {}, el("tr", {}, [
       el("th", { text: "Complaint No." }), el("th", { text: "Customer" }),
       el("th", { text: "Business Line" }), el("th", { text: "Status" }),
@@ -97,7 +98,7 @@ CCMS.views.complaints = async function (mount) {
     rows.forEach((c) => {
       const canAct = CCMS.roles.canActOnStatus(user.roleId, c.status, c._priorStatus) &&
         !["Closed", "Auto_Closed", "Rejected"].includes(c.status);
-      tb.appendChild(el("tr.row-link", { onClick: () => CCMS.router.go("#/complaints/" + c.complaintNo) }, [
+      tb.appendChild(CCMS.ui.rowLink("Open " + c.complaintNo + " — " + (c.customerName || ""), () => CCMS.router.go("#/complaints/" + c.complaintNo), [
         el("td", {}, [
           el("strong", { text: c.complaintNo }),
           canAct ? el("span.dot-flag", { title: "Awaiting your action" }) : null,
@@ -113,7 +114,7 @@ CCMS.views.complaints = async function (mount) {
       ]));
     });
     t.appendChild(tb);
-    listCard.appendChild(t);
+    listCard.appendChild(scroll);
   }
 
   function debounce(fn, ms) {

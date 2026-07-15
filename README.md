@@ -8,6 +8,8 @@
 
 This is the complete backend for the Orient Paper & Mill CCMS — built exactly to the **CCMS Data Classification Report & Addendum** spec. It covers:
 
+> **Documentation** — [Architecture](docs/ARCHITECTURE.md) · [API Reference](docs/API.md) · [Database](docs/DATABASE.md) · [Security](docs/SECURITY.md)
+
 | Area | What's Built |
 |---|---|
 | **Persistence** | PostgreSQL — 18 tables. Money is `numeric`, defective value is a generated column, all 16 workflow statuses are CHECK-constrained, and the audit log is append-only at the database level |
@@ -20,6 +22,47 @@ This is the complete backend for the Orient Paper & Mill CCMS — built exactly 
 | **CAPA** | Corrective & Preventive Action documentation by Operations |
 | **Audit Log** | Immutable, append-only log of every human and system action (Section 12.6) |
 | **Sales Policy** | Section 9 — policy compliance check at Stage 1; policy breach triggers MD approval |
+
+---
+
+## Screenshots
+
+### Sign in — one system, a portal per role
+Each role gets its own accent colour and navigation. The sandbox logins below
+the form are dev-only and disappear when `SHOW_DEMO_ACCOUNTS` is off.
+
+![Login screen](docs/screenshots/01-login.png)
+
+### Dashboard — your action queue first
+KPI tiles split settlement into **open exposure** vs **lifetime total**, and the
+action queue shows only complaints this role can act on right now.
+
+![Dashboard](docs/screenshots/02-dashboard.png)
+
+### Complaints — scoped to what you're allowed to see
+Read scoping is enforced by the API, not the UI: a junior role never receives
+complaints outside its queue. Policy breaches are flagged inline.
+
+![Complaints list](docs/screenshots/03-complaints.png)
+
+### Complaint detail — the whole journey on one page
+Workflow tracker, gate status, line items with auto-computed defective value,
+samples, CAPA, visits, the SAP credit note, and the full immutable audit trail.
+
+![Complaint detail](docs/screenshots/04-complaint-detail.png)
+
+### New complaint — invoice pulled live from SAP
+Enter an invoice number and SAP returns the header and line items; you add the
+defective quantity and complaint type. Settlement value drives the MD and visit
+gates automatically.
+
+![New complaint](docs/screenshots/05-new-complaint.png)
+
+### Audit log — every human and system action
+Append-only, checksummed, and enforced at the database level. `Policy Engine`
+and `SAP Integration` appear as actors alongside people.
+
+![Audit log](docs/screenshots/06-audit-log.png)
 
 ---
 
@@ -49,8 +92,10 @@ npm run init-db              # creates the `ccms` database, schema + seed data
 npm start                    # → http://localhost:3000  (MOCK SAP mode)
 ```
 
-`npm run init-db` is safe to re-run: it refuses to touch a database that
-already holds complaints. To deliberately wipe and rebuild:
+`npm run init-db` is safe to re-run: it refuses to touch a database holding
+any transactional data — complaints, line items, attachments, samples, visits,
+CAPA records, credit notes, or the audit trail. Master data is reseeded from
+`seed.sql`, so a re-run costs nothing there. To deliberately wipe and rebuild:
 
 ```bash
 npm run init-db -- --force   # drops every table, then recreates and reseeds
@@ -74,6 +119,26 @@ Seeded by `init-db`. Admin can drive every stage of the workflow.
 |---|---|---|
 | Administrator | `admin@orientpaper.com` | `Admin@456` |
 | All other staff | see `db/seed.sql` | `Orient@123` |
+
+> **These are sandbox credentials, and this repository is public — so they are
+> public too.** That is fine on a laptop and not fine anywhere reachable.
+>
+> Seeding with `NODE_ENV=production` handles it: `init-db` gives every account
+> still carrying a password published here a fresh random one and prints them
+> once. Nothing in this repository can then sign in to that database.
+
+Only the hash is stored, so a password can never be read back. Lost one — or
+want to rotate — without touching any data:
+
+```bash
+npm run reset-password -- admin@orientpaper.com   # one account
+npm run reset-password -- --all                   # every account
+npm run reset-password -- --published             # only accounts still using a
+                                                  # password published in this repo
+```
+
+Restart the API afterwards: it caches users at startup, so a running server
+still expects the old password.
 
 **To connect real SAP later:** set `SAP_USE_MOCK=false` in `backend/.env` and
 fill in the 4 SAP lines. Zero code changes anywhere else.
@@ -393,3 +458,13 @@ Recommended extensions:
 - **REST Client** — alternative API tester
 
 For the SAP/ABAP side when you get SAP access: use **Eclipse IDE + ABAP Development Tools (ADT)** plugin — not VS Code.
+
+---
+
+<div align="center">
+
+**Built by Keshav Raj Jain**
+
+Customer Complaint Management System · Orient Paper &amp; Mill
+
+</div>

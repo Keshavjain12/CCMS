@@ -36,29 +36,80 @@ CCMS.views.createComplaint = async function (mount) {
   const remarksInput = el("textarea.input", { rows: "2", placeholder: "Customer's description of the issue…" });
 
   const lineItemsHost = el("div.li-builder");
+  const liError = el("div");   // inline validation target for the line-item block
   const addLiBtn = el("button.btn.btn-ghost.btn-sm", { text: "+ Add line item", onClick: () => addLineRow() });
 
   const submitBtn = el("button.btn.btn-primary.btn-lg", { text: "Create complaint", onClick: submit });
 
   let invoiceData = null;
+  let sapFallback = false;   // true once a lookup failed — surfaced, not silent
 
-  lookupBtn.addEventListener("click", async () => {
-    const no = invInput.value.trim();
-    if (!no) { toast("Enter an invoice number.", "error"); return; }
-    lookupBtn.disabled = true; lookupBtn.textContent = "Looking up…";
-    CCMS.ui.clear(invResult);
-    try {
-      const res = await CCMS.api.get("/api/master-data/invoice/" + encodeURIComponent(no));
-      invoiceData = res.data;
-      renderInvoice(res.source, res.data);
-      prefillFromInvoice(res.data);
-    } catch (err) {
-      invResult.appendChild(CCMS.ui.errorBox(err.message + " — you can still enter line items manually below."));
-      invoiceData = null;
-    } finally {
-      lookupBtn.disabled = false; lookupBtn.textContent = "Look up in SAP";
-    }
+  // ── Inline field validation ─────────────────────────────────────
+  // Errors were toast-only: they appeared away from the field, then vanished
+  // after a few seconds, leaving no indication of which input was wrong.
+  function fieldError(input, msg) {
+    clearFieldError(input);
+    input.classList.add("invalid");
+    input.setAttribute("aria-invalid", "true");
+    const err = el("div.field-err", { text: msg });
+    err.dataset.errFor = "1";
+    (input.parentNode || input).insertBefore(err, input.nextSibling);
+    input.focus();
+    return false;
+  }
+  function clearFieldError(input) {
+    input.classList.remove("invalid");
+    input.removeAttribute("aria-invalid");
+    const sib = input.nextSibling;
+    if (sib && sib.dataset && sib.dataset.errFor) sib.remove();
+  }
+
+  lookupBtn.addEventListener("click", () => doLookup());
+
+  // Enter in the invoice field should look up — it is the only thing that
+  // field is for, and reaching for the mouse to submit one value is friction.
+  invInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); doLookup(); }
   });
+
+  function doLookup() {
+    const no = invInput.value.trim();
+    if (!no) return fieldError(invInput, "Enter an invoice number to look up.");
+    clearFieldError(invInput);
+
+    // The lookup is a live call to SAP and can be slow or fall back. It used
+    // to change only the button label, so the state of the fetch — and the
+    // fact that a fallback happened at all — was invisible.
+    CCMS.ui.clear(invResult);
+    invResult.appendChild(el("div.async-state", {}, [
+      el("div.dot-spin", { "aria-hidden": "true" }),
+      el("span", { text: "Fetching invoice " + no + " from SAP…" }),
+    ]));
+
+    return CCMS.ui.runAsync(lookupBtn, async () => {
+      try {
+        const res = await CCMS.api.get("/api/master-data/invoice/" + encodeURIComponent(no));
+        invoiceData = res.data;
+        renderInvoice(res.source, res.data);
+        prefillFromInvoice(res.data);
+        toast("Invoice " + no + " loaded — " + ((res.data.lineItems || []).length) + " line item(s).", "success");
+      } catch (err) {
+        invoiceData = null;
+        // SAP being unreachable is a supported path (Section 11.2), not a dead
+        // end: the complaint can still be filed and the backend flags it
+        // "Pending SAP Validation". Say so plainly instead of showing an error
+        // and leaving the user guessing whether they may continue.
+        CCMS.ui.clear(invResult);
+        invResult.appendChild(CCMS.ui.gate({
+          name: "Invoice not validated against SAP",
+          state: "pending",
+          why: CCMS.ui.humanError(err),
+          todo: "You can still file this complaint — it will be flagged “Pending SAP Validation” and Finance will verify the invoice before any credit note is raised.",
+        }));
+        sapFallback = true;
+      }
+    });
+  }
 
   function renderInvoice(source, inv) {
     CCMS.ui.clear(invResult);
@@ -136,48 +187,74 @@ CCMS.views.createComplaint = async function (mount) {
     return el("label.mini-field" + (cls ? "." + cls : ""), {}, [el("span", { text: label }), node]);
   }
 
-  async function submit() {
+  function submit() {
     const items = Array.prototype.map.call(lineItemsHost.querySelectorAll(".li-row"), (r) => r._collect())
       .filter((x) => x.complaintTypeId && x.defectiveQty > 0);
-    if (!invInput.value.trim()) { toast("Invoice number is required.", "error"); return; }
-    if (!items.length) { toast("Add at least one line item with a complaint type and defective qty.", "error"); return; }
 
-    submitBtn.disabled = true; submitBtn.textContent = "Creating…";
-    try {
-      const res = await CCMS.api.post("/api/complaints", {
-        invoiceNumber: invInput.value.trim(),
-        title: titleInput.value || undefined,
-        remarks: remarksInput.value || undefined,
-        lineItemsInput: items,
-        reportedBy: user.userId,
-      });
-      const cno = res.complaint && res.complaint.complaintNo;
-      toast("Created " + cno, "success");
-      if (res.policyAlert) toast("Policy breach flagged: " + res.policyAlert.clauseBreached, "error");
-      CCMS.router.go("#/complaints/" + cno);
-    } catch (err) {
-      toast(err.message, "error");
-      submitBtn.disabled = false; submitBtn.textContent = "Create complaint";
+    // Validate at the field, not in a toast that floats away from it.
+    if (!invInput.value.trim()) return fieldError(invInput, "An invoice number is required.");
+    clearFieldError(invInput);
+    if (!items.length) {
+      CCMS.ui.clear(liError);
+      liError.appendChild(el("div.field-err", {
+        text: "Add at least one affected product with a complaint type and a defective quantity above zero.",
+      }));
+      lineItemsHost.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
     }
+    CCMS.ui.clear(liError);
+
+    // runAsync spins the button and blocks a second click, so a slow SAP call
+    // can't be turned into two complaints by an impatient double-click.
+    return CCMS.ui.runAsync(submitBtn, async () => {
+      try {
+        const res = await CCMS.api.post("/api/complaints", {
+          invoiceNumber: invInput.value.trim(),
+          title: titleInput.value || undefined,
+          remarks: remarksInput.value || undefined,
+          lineItemsInput: items,
+          reportedBy: user.userId,
+        });
+        const cno = res.complaint && res.complaint.complaintNo;
+        toast("Created " + cno, "success");
+        // A policy breach is not an error — it is a real outcome the workflow
+        // routes on (it forces MD approval). Warn, don't cry failure.
+        if (res.policyAlert) toast("Policy breach flagged: " + res.policyAlert.clauseBreached + " — MD approval will be required.", "info");
+        if (res.complaint && res.complaint.sapValidationPending) {
+          toast("Filed with “Pending SAP Validation” — Finance will verify the invoice.", "info");
+        }
+        CCMS.router.go("#/complaints/" + cno);
+      } catch (err) {
+        CCMS.ui.errorToast(err);
+      }
+    });
+  }
+
+  // Required fields are marked, and optional ones say so. The form previously
+  // marked neither, so which fields would block submission was only learnable
+  // by submitting.
+  function required(text) {
+    return el("span", {}, [text, el("span.req", { text: "*", "aria-hidden": "true" })]);
   }
 
   mount.appendChild(el("div.grid-2", {}, [
     el("div.card", {}, [
       el("div.card-head", {}, [el("h3", { text: "1 · Invoice (SAP lookup)" })]),
-      el("div.inline-form", {}, [invInput, lookupBtn]),
+      el("label.field", {}, [required("Invoice number"), el("div.inline-form", {}, [invInput, lookupBtn])]),
       el("p.muted.sm", { text: "Try 90001234, 90005678, or 90009999 in mock mode." }),
       invResult,
     ]),
     el("div.card", {}, [
       el("div.card-head", {}, [el("h3", { text: "2 · Complaint details" })]),
-      el("label.field", {}, [el("span", { text: "Title" }), titleInput]),
-      el("label.field", {}, [el("span", { text: "Remarks" }), remarksInput]),
+      el("label.field", {}, [el("span", { text: "Title (optional)" }), titleInput]),
+      el("label.field", {}, [el("span", { text: "Remarks (optional)" }), remarksInput]),
     ]),
   ]));
 
   mount.appendChild(el("div.card", {}, [
     el("div.card-head", {}, [el("h3", { text: "3 · Affected line items" }), addLiBtn]),
     lineItemsHost,
+    liError,
   ]));
 
   mount.appendChild(el("div.form-submit", {}, [submitBtn]));

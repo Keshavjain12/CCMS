@@ -23,6 +23,7 @@ const audit              = require("../data/auditLog");
 const sla                = require("./slaEngine");
 const md                 = require("../data/masterData");
 const workflow           = require("./workflowService");
+const visibility         = require("./visibility");
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function daysBetween(d1, d2) {
@@ -52,11 +53,28 @@ const TERMINAL = new Set(["Closed", "Auto_Closed"]);
 const NEGATIVE_ACTIONS = new Set(["Reject", "Clarify"]);
 
 // ── Main KPI Calculator ───────────────────────────────────────────────────
-async function computeKPIs() {
-  const all       = await complaintStore.getAll();
-  const auditAll  = await audit.getAll();
-  const breaches  = sla.getAllBreaches();
-  const now       = new Date().toISOString();
+/**
+ * @param {object} user - the authenticated caller. REQUIRED: every figure
+ *   below is derived from complaint data, so the same read scoping the
+ *   complaints list applies must apply here too. Without it the dashboard
+ *   would tell a junior role how many complaints exist company-wide and
+ *   what they're worth — exactly what Section 12.3 forbids, and precisely
+ *   the leak that made "4 total" show against a 3-row list.
+ */
+async function computeKPIs(user) {
+  const everything = await complaintStore.getAll();
+  const all        = await visibility.filterVisible(user, everything);
+
+  // Scope the audit trail to the complaints this user may see, so derived
+  // action counts can't reveal activity on hidden complaints either.
+  const visibleNos = new Set(all.map((c) => c.complaintNo));
+  const auditEvery = await audit.getAll();
+  const auditAll   = auditEvery.filter((e) => !e.complaintNo || visibleNos.has(e.complaintNo));
+
+  const breaches   = (sla.getAllBreaches() || []).filter(
+    (b) => !b.complaintNo || visibleNos.has(b.complaintNo)
+  );
+  const now        = new Date().toISOString();
 
   // ── 1. Complaint Volume ────────────────────────────────────────────────
   const total       = all.length;

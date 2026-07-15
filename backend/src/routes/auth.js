@@ -6,9 +6,9 @@
 // =========================================================================
 const express  = require("express");
 const bcrypt   = require("bcryptjs");
-const router   = express.Router();
+const router   = require("../utils/asyncRoute").safeRouter();
 const md       = require("../data/masterData");
-const { signToken, authenticate } = require("../middleware/auth");
+const { signToken, authenticate, AUTH_COOKIE, cookieOptions } = require("../middleware/auth");
 
 // ── POST /api/auth/login ─────────────────────────────────────────────────
 router.post("/login", async (req, res) => {
@@ -31,9 +31,14 @@ router.post("/login", async (req, res) => {
   const role = md.findRole(user.roleId) || {};
   const token = signToken(user);
 
+  // The token goes back as an httpOnly cookie ONLY — deliberately not in the
+  // response body. Putting it in the JSON would hand it to page JavaScript
+  // (and therefore to any XSS on the page). The browser will attach the
+  // cookie to subsequent requests on its own.
+  res.cookie(AUTH_COOKIE, token, cookieOptions());
+
   res.json({
     message:  `Welcome, ${user.name}!`,
-    token,
     expiresIn: process.env.JWT_EXPIRES || "8h",
     user: {
       userId:     user.userId,
@@ -71,14 +76,17 @@ router.get("/me", authenticate, (req, res) => {
 });
 
 // ── POST /api/auth/logout ────────────────────────────────────────────────
-// JWT is stateless — actual invalidation happens on the client by
-// discarding the token. This endpoint exists for completeness and to
-// support future token blacklist / refresh-token patterns.
-router.post("/logout", authenticate, (req, res) => {
-  res.json({
-    message: `Logged out successfully. Discard your token on the client side.`,
-    userId: req.user.userId,
-  });
+// Clears the auth cookie server-side. The client can no longer "forget" the
+// token itself (it never had it), so logout must happen here.
+//
+// Note: the JWT stays cryptographically valid until it expires — clearing the
+// cookie only removes the browser's copy. Revoking a live token would need a
+// denylist or short-lived tokens plus refresh; out of scope for now.
+router.post("/logout", (req, res) => {
+  const opts = cookieOptions();
+  delete opts.maxAge;
+  res.clearCookie(AUTH_COOKIE, opts);
+  res.json({ message: "Logged out successfully." });
 });
 
 module.exports = router;

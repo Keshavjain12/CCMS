@@ -28,6 +28,8 @@ const masterData = require("./masterData");
 
 const SAMPLE_STATUSES = ["Awaited", "Received", "Under Testing", "Tested", "Disposed"];
 const VISIT_STATUSES  = ["Planned", "Completed", "Cancelled"];
+// Mirrors the visits.outcome CHECK constraint in db/schema.sql — keep in step.
+const VISIT_OUTCOMES  = ["Resolved On-Site", "Escalation Confirmed", "No Further Action"];
 
 // ── generic update builder ───────────────────────────────────────────────
 // Only whitelisted keys are written; anything else (e.g. the runtime-only
@@ -71,6 +73,11 @@ const COMPLAINT_COLS = `
     c.reported_by              AS "reportedBy",
     c.sap_validation_pending   AS "sapValidationPending",
     c.credit_note_number       AS "creditNoteNumber",
+    c.sla_breached             AS "slaBreached",
+    c.sla_breached_at          AS "slaBreachedAt",
+    c.sla_breached_status      AS "slaBreachedStatus",
+    c.archived,
+    c.archived_at              AS "archivedAt",
     c.created_at               AS "createdAt",
     c.updated_at               AS "updatedAt",
     c.closed_at                AS "closedAt",
@@ -106,6 +113,12 @@ const COMPLAINT_UPDATE_COLS = {
   sampleRequired: "sample_required", visitRequested: "visit_requested",
   reportedBy: "reported_by", sapValidationPending: "sap_validation_pending",
   creditNoteNumber: "credit_note_number", closedAt: "closed_at",
+  // Background engine state. Absent from this map, the SLA and archival
+  // engines' writes were accepted and silently discarded — buildSet drops any
+  // key it does not know, so nothing failed loudly.
+  slaBreached: "sla_breached", slaBreachedAt: "sla_breached_at",
+  slaBreachedStatus: "sla_breached_status",
+  archived: "archived", archivedAt: "archived_at",
 };
 
 // Attach the customer record from the master cache (used by the visit gate).
@@ -149,6 +162,17 @@ const complaintStore = {
     if (filters.status)       { vals.push(filters.status);       where.push(`c.status = $${vals.length}`); }
     if (filters.customerId)   { vals.push(filters.customerId);   where.push(`c.customer_id = $${vals.length}`); }
     if (filters.businessLine) { vals.push(filters.businessLine); where.push(`c.business_line = $${vals.length}`); }
+    // Archived complaints are excluded unless asked for. Section 12.7 keeps
+    // them out of live views and KPIs, and defaulting to exclude means a
+    // caller that forgets the filter gets the policy's answer rather than a
+    // quietly wrong one.
+    //   (omitted)      → live records only
+    //   archived: true → the archive
+    //   archived: null → both, ignoring the distinction
+    if (filters.archived !== null) {
+      vals.push(filters.archived === undefined ? false : filters.archived);
+      where.push(`c.archived = $${vals.length}`);
+    }
     const rows = await db.many(
       `SELECT ${COMPLAINT_COLS} FROM complaints c ${LATEST_SAMPLE_JOIN}
        ${where.length ? "WHERE " + where.join(" AND ") : ""}
@@ -415,6 +439,13 @@ const visitStore = {
     }
     return this.getById(visitId);
   },
+
+  /** Delete a visit outright. Callers must first establish that it holds no
+   *  recorded work — a visit that happened is cancelled, never removed. */
+  async remove(visitId) {
+    const { rowCount } = await db.query(`DELETE FROM visits WHERE visit_id = $1`, [visitId]);
+    return rowCount > 0;
+  },
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -502,4 +533,5 @@ module.exports = {
   creditNoteStore,
   SAMPLE_STATUSES,
   VISIT_STATUSES,
+  VISIT_OUTCOMES,
 };

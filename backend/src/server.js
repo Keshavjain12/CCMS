@@ -7,7 +7,11 @@ const sap     = require("./services/sapService");
 const { authenticate, requireRoles } = require("./middleware/auth");
 const { paginate } = require("./utils/pagination");
 
-const app = express();
+// protect() wraps every handler registered on the app from here on, so an
+// async route that rejects returns 500 via the error handler at the bottom
+// instead of taking the process down. The routers get the same treatment via
+// safeRouter(); this covers the routes defined directly on the app.
+const app = require("./utils/asyncRoute").protect(express());
 
 // ── Company-wide oversight views (audit log, notification matrix, SLA board)
 // expose data across every department. They must NOT be readable by every
@@ -17,11 +21,31 @@ const GLOBAL_VIEW_ROLES = ["R000", "R009"];
 // Purely administrative surfaces (archive, rollout, manual engine triggers).
 const ADMIN_ONLY = ["R000"];
 
+// Behind a reverse proxy (Nginx, Heroku, Render…) TLS terminates upstream, so
+// Express sees plain HTTP. Trusting the proxy makes req.secure honest, which
+// is what lets `Secure` cookies actually be set in production.
+if (process.env.TRUST_PROXY === "true") app.set("trust proxy", 1);
+
 // ── Section 12.6 — Security headers (HTTPS, XSS, MIME-sniff protection) ──
 app.use(helmet({
   contentSecurityPolicy: false, // relax for API — frontend sets its own CSP
   crossOriginResourcePolicy: { policy: "cross-origin" },
+  // HSTS tells browsers to only ever reach this host over HTTPS. Enabled in
+  // production only: sending it from a dev server would pin localhost to
+  // HTTPS in your browser and break plain-http development.
+  hsts: process.env.NODE_ENV === "production"
+    ? { maxAge: 15552000, includeSubDomains: true }
+    : false,
 }));
+
+// Refuse to serve auth over plain HTTP in production: the cookie would be
+// sent in clear text and could be lifted off the wire.
+if (process.env.NODE_ENV === "production") {
+  app.use((req, res, next) => {
+    if (req.secure || req.headers["x-forwarded-proto"] === "https") return next();
+    res.status(403).json({ error: "HTTPS is required." });
+  });
+}
 
 // ── Section 12.6 — Rate limiting (concurrency/performance gate) ──────────
 const globalLimiter = rateLimit({
@@ -40,16 +64,22 @@ const authLimiter = rateLimit({
   message:  { error: "Too many login attempts. Please wait 15 minutes before trying again." },
 });
 
-// CORS — lock to an explicit allow-list in production via CORS_ORIGIN
-// (comma-separated origins). If unset, reflect any origin (fine for local dev
-// since auth is a Bearer token, not a cookie, so CSRF isn't in play).
-const corsOrigins = (process.env.CORS_ORIGIN || "").split(",").map((s) => s.trim()).filter(Boolean);
+// CORS — auth now travels in a cookie, so `credentials: true` is required for
+// the browser to send it, and the origin must be an explicit allow-list: the
+// wildcard is illegal with credentials, and reflecting any origin would let
+// any site issue authenticated requests. CORS_ORIGIN is comma-separated;
+// defaults to the local frontend.
+const corsOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
+  .split(",").map((s) => s.trim()).filter(Boolean);
 app.use(cors({
-  origin: corsOrigins.length ? corsOrigins : true,
+  origin: corsOrigins,
+  credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "1mb" }));
+// Parses the httpOnly auth cookie into req.cookies for the auth middleware.
+app.use(require("cookie-parser")());
 app.use(morgan("dev"));
 
 // ── Public routes (no token needed) ──────────────────────────────────────
@@ -60,10 +90,13 @@ app.use("/api/master-data",  authenticate, require("./routes/masterData"));
 app.use("/api/complaints",   authenticate, require("./routes/complaints"));
 
 // Global audit log — restricted to Admin / MD (company-wide record).
-app.get("/api/audit-log", authenticate, requireRoles(GLOBAL_VIEW_ROLES), (req, res) => {
-  const all = require("./data/auditLog").getAll();
-  const entries = Array.isArray(all) ? all : (all.entries || []);
-  res.json(paginate(entries, req.query, "entries"));
+app.get("/api/audit-log", authenticate, requireRoles(GLOBAL_VIEW_ROLES), async (req, res) => {
+  try {
+    const entries = await require("./data/auditLog").getAll();
+    res.json(paginate(entries, req.query, "entries"));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Notification log (Section 12.1) ──────────────────────────────────────
@@ -99,12 +132,18 @@ app.get("/", (req, res) => {
   res.json({
     system:   "Orient Paper & Mill — CCMS",
     sapMode:  sap.USE_MOCK ? "MOCK (no real SAP connection needed)" : "LIVE SAP",
-    auth: "JWT Bearer token — POST /api/auth/login to obtain a token",
+    auth: "JWT in an httpOnly cookie — POST /api/auth/login to sign in",
     buildSpec: "Full spec — Sections 3-12 of CCMS Data Classification Report & Addendum",
     rbac: {
       description: "Section 12.3 — Role-Based Access Control enforced on all protected routes",
-      defaultPassword: "Orient@123 (all users) | Admin@456 (admin@orientpaper.com)",
       loginEndpoint: "POST /api/auth/login  { email, password }",
+      // This route is PUBLIC — no token required. The seeded demo passwords
+      // were listed here, which handed working admin credentials to anyone who
+      // could reach the API. Convenient locally, a free login once deployed.
+      // Dev-only, and pointing at the docs rather than repeating the secret.
+      ...(process.env.NODE_ENV === "production"
+        ? {}
+        : { demoCredentials: "Development build — see README.md for the seeded sandbox logins." }),
     },
     entities: {
       masterData:    ["Customer/Distributor", "User", "Role", "Department", "Product/SKU", "Invoice", "Complaint Type", "Sample Type", "Sales Policy"],
@@ -155,7 +194,19 @@ app.get("/", (req, res) => {
         "GET  /api/complaints/:no/status-sequence": "Status sequence & gate state — any authenticated user",
       },
     },
-    testUsers: [
+    // Seeded sandbox logins. This route is PUBLIC — anyone who can reach the
+    // API gets whatever is here, no token required — so the passwords are only
+    // ever emitted outside production. Emails/roles are safe to list (they're
+    // in the seed data either way); the passwords are what must not ship.
+    testUsers: (process.env.NODE_ENV === "production" ? [
+      { email: "admin@orientpaper.com",          role: "Admin (full access)" },
+      { email: "kiran.joshi@orientpaper.com",    role: "TS Head — approves at TS_Review" },
+      { email: "neha.singh@orientpaper.com",     role: "QC Manager — approves at QC_Review" },
+      { email: "sanjay.patel@orientpaper.com",   role: "Operations Head — approves at Ops_Head_Approval" },
+      { email: "vikram.rao@orientpaper.com",     role: "Marketing Head — approves at Marketing_Head_Approval" },
+      { email: "sumedha.iyer@orientpaper.com",   role: "Managing Director — approves at MD_Approval" },
+      { email: "mohan.das@orientpaper.com",      role: "Finance Officer — raises Credit Note" },
+    ] : [
       { email: "admin@orientpaper.com",          password: "Admin@456",   role: "Admin (full access)" },
       { email: "kiran.joshi@orientpaper.com",    password: "Orient@123",  role: "TS Head — approves at TS_Review" },
       { email: "neha.singh@orientpaper.com",     password: "Orient@123",  role: "QC Manager — approves at QC_Review" },
@@ -163,7 +214,7 @@ app.get("/", (req, res) => {
       { email: "vikram.rao@orientpaper.com",     password: "Orient@123",  role: "Marketing Head — approves at Marketing_Head_Approval" },
       { email: "sumedha.iyer@orientpaper.com",   password: "Orient@123",  role: "Managing Director — approves at MD_Approval" },
       { email: "mohan.das@orientpaper.com",      password: "Orient@123",  role: "Finance Officer — raises Credit Note" },
-    ],
+    ]),
   });
 });
 
@@ -187,7 +238,7 @@ const kpi = require("./services/kpiService");
 // GET /api/kpi — full live dashboard
 app.get("/api/kpi", authenticate, async (req, res) => {
   try {
-    const data = await kpi.computeKPIs();
+    const data = await kpi.computeKPIs(req.user);
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -197,7 +248,7 @@ app.get("/api/kpi", authenticate, async (req, res) => {
 // GET /api/kpi/summary — lightweight summary only (for quick health check)
 app.get("/api/kpi/summary", authenticate, async (req, res) => {
   try {
-    const data = await kpi.computeKPIs();
+    const data = await kpi.computeKPIs(req.user);
     res.json({
       generatedAt:    data.generatedAt,
       summary:        data.summary,
@@ -230,13 +281,14 @@ app.post("/api/sla/check", authenticate, requireRoles(ADMIN_ONLY), async (req, r
 const archive = require("./services/archivalService");
 
 // Data-retention archive is an administrative surface → Admin only.
-app.get("/api/archive", authenticate, requireRoles(ADMIN_ONLY), (req, res) => {
-  res.json({ count: archive.getAllArchived().length, complaints: archive.getAllArchived() });
+app.get("/api/archive", authenticate, requireRoles(ADMIN_ONLY), async (req, res) => {
+  const complaints = await archive.getAllArchived();
+  res.json({ count: complaints.length, complaints });
 });
 
 // GET /api/archive/policy — data retention policy details
-app.get("/api/archive/policy", authenticate, requireRoles(ADMIN_ONLY), (req, res) => {
-  res.json(archive.getPolicy());
+app.get("/api/archive/policy", authenticate, requireRoles(ADMIN_ONLY), async (req, res) => {
+  res.json(await archive.getPolicy());
 });
 
 // GET /api/archive/log — archival action log
@@ -246,8 +298,8 @@ app.get("/api/archive/log", authenticate, requireRoles(ADMIN_ONLY), (req, res) =
 });
 
 // GET /api/archive/:complaintNo — retrieve one archived complaint
-app.get("/api/archive/:complaintNo", authenticate, requireRoles(ADMIN_ONLY), (req, res) => {
-  const c = archive.getArchivedComplaint(req.params.complaintNo);
+app.get("/api/archive/:complaintNo", authenticate, requireRoles(ADMIN_ONLY), async (req, res) => {
+  const c = await archive.getArchivedComplaint(req.params.complaintNo);
   if (!c) return res.status(404).json({ error: "Not found in archive" });
   res.json(c);
 });
@@ -277,6 +329,19 @@ app.get("/api/audit-log/verify", authenticate, requireRoles(GLOBAL_VIEW_ROLES), 
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Error handler (must be last — after every route) ─────────────────────
+// Async handlers are wrapped by safeRouter(), so a rejected promise arrives
+// here as next(err) instead of escaping to the process and killing it. The
+// real message is logged server-side always; it is only echoed to the client
+// outside production, where a driver error could disclose schema internals.
+app.use((err, req, res, next) => {
+  console.error(`[API] ${req.method} ${req.originalUrl} — ${err.message}`);
+  if (res.headersSent) return next(err);
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+  });
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────

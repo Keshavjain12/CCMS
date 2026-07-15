@@ -171,13 +171,13 @@ async function runSlaCheck() {
     const slaDays = getSlaWindow(complaint.status);
     if (daysInStage < slaDays) continue; // Within SLA — no action needed
 
-    // Check if we already logged a breach for this complaint + status combo
-    const alreadyLogged = slaBreaches.some(
-      (b) => b.complaintNo === complaint.complaintNo &&
-             b.status      === complaint.status &&
-             b.action      === "breach_notified"
-    );
-    if (alreadyLogged) continue; // Don't spam repeated breach notifications
+    // Already escalated for this complaint at this stage? Read from the
+    // complaint, not from slaBreaches: that array is process memory, so a
+    // restart emptied it and every overdue complaint was escalated again —
+    // a fresh audit entry and a fresh email to the supervisor, hourly.
+    // The stage is part of the check: moving on and going stale again is a
+    // new breach, not the one already reported.
+    if (complaint.slaBreached && complaint.slaBreachedStatus === complaint.status) continue;
 
     // Log the breach
     logBreach({

@@ -95,6 +95,27 @@ const ROUTE_PERMISSIONS = {
 };
 
 // ── Token helpers ─────────────────────────────────────────────────────────
+// ── Auth cookie ───────────────────────────────────────────────────────────
+// The token lives in an httpOnly cookie rather than being handed to page
+// JavaScript, so script injected into the page cannot read or steal it.
+//   httpOnly — invisible to document.cookie / any JS
+//   sameSite:'lax' — not attached to cross-site requests, which blocks CSRF
+//     while still working across localhost ports (same site, different origin)
+//   secure — HTTPS-only. Enabled in production; off in dev so plain-http
+//     localhost still works.
+const AUTH_COOKIE = "ccms_token";
+
+function cookieOptions() {
+  const hours = parseInt(String(process.env.JWT_EXPIRES || "8h"), 10) || 8;
+  return {
+    httpOnly: true,
+    sameSite: process.env.COOKIE_SAMESITE || "lax",
+    secure:   process.env.NODE_ENV === "production",
+    maxAge:   hours * 60 * 60 * 1000,
+    path:     "/",
+  };
+}
+
 function signToken(user) {
   return jwt.sign(
     {
@@ -110,13 +131,20 @@ function signToken(user) {
 }
 
 // ── Core verify middleware ────────────────────────────────────────────────
+// Token source, in order:
+//   1. The httpOnly cookie set at login. Browsers send it automatically and
+//      page JavaScript cannot read it, so an XSS flaw can't exfiltrate it.
+//   2. An Authorization: Bearer header — kept for non-browser clients
+//      (Postman, curl, scripts) that don't carry a cookie jar.
 function authenticate(req, res, next) {
   const header = req.headers["authorization"] || "";
-  const token  = header.startsWith("Bearer ") ? header.slice(7) : null;
+  const token =
+    (req.cookies && req.cookies[AUTH_COOKIE]) ||
+    (header.startsWith("Bearer ") ? header.slice(7) : null);
 
   if (!token) {
     return res.status(401).json({
-      error: "No token provided. Login via POST /api/auth/login to get a Bearer token.",
+      error: "Not authenticated. Login via POST /api/auth/login.",
     });
   }
 
@@ -207,4 +235,6 @@ module.exports = {
   STATUS_ALLOWED_ROLES,
   JWT_SECRET,
   JWT_EXPIRES,
+  AUTH_COOKIE,
+  cookieOptions,
 };

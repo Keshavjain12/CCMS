@@ -21,26 +21,35 @@
 require("dotenv").config();
 const { complaintStore, attachmentStore } = require("../data/transactionalStore");
 const audit = require("../data/auditLog");
+const rollout = require("../config/rollout");
 
 const ATTACHMENT_RETENTION_DAYS = parseInt(process.env.ATTACHMENT_RETENTION_DAYS || "365");
 const COMPLAINT_ARCHIVE_DAYS    = parseInt(process.env.COMPLAINT_ARCHIVE_DAYS    || "730");
 const ARCHIVE_TICK_HOURS        = parseInt(process.env.ARCHIVE_TICK_HOURS        || "24");
 const ARCHIVE_ENABLED           = process.env.ARCHIVE_ENABLED !== "false";
 
-// ── Archive store (in-memory — replace with DB collection in production) ──
-const archivedComplaints = [];
+// ── Archive store ─────────────────────────────────────────────────────────
+// The archive is not a separate collection: it is the complaints marked
+// archived. Holding a copy in process memory meant the archive emptied on
+// every restart while the complaints stayed archived in the database — so a
+// record that was archived became unreachable through the API entirely.
+async function getAllArchived() {
+  return complaintStore.getAll({ archived: true });
+}
+
+async function getArchivedComplaint(complaintNo) {
+  const c = await complaintStore.getByNo(complaintNo);
+  return c && c.archived ? c : null;
+}
+
+// Run-log of what this process archived. Deliberately memory-only and not a
+// system of record: every action here is also written to the audit log, which
+// is append-only and survives restarts. This is a convenience view of the
+// current process's work, and /api/archive/log says so.
 const archivalLog = [];
 
 function logArchival(entry) {
   archivalLog.push({ ...entry, archivedAt: new Date().toISOString() });
-}
-
-function getAllArchived() {
-  return [...archivedComplaints];
-}
-
-function getArchivedComplaint(complaintNo) {
-  return archivedComplaints.find((c) => c.complaintNo === complaintNo) || null;
 }
 
 function getAllArchivalLog() {
@@ -57,7 +66,9 @@ async function runArchivalCheck() {
   const now = new Date().toISOString();
   console.log(`\n🗄️  [ARCHIVAL] Running check at ${now}`);
 
-  const all = await complaintStore.getAll();
+  // Explicit rather than relying on the default: this loop archives what is
+  // not yet archived, and the query is what keeps it from doing so twice.
+  const all = await complaintStore.getAll({ archived: false });
   let attachmentsPurged = 0;
   let complaintsArchived = 0;
 
@@ -65,7 +76,6 @@ async function runArchivalCheck() {
     // Only process closed complaints
     if (complaint.status !== "Closed" && complaint.status !== "Auto_Closed") continue;
     if (!complaint.closedAt) continue;
-    if (complaint.archived) continue; // already archived
 
     const daysSinceClosure = daysSince(complaint.closedAt);
 
@@ -106,15 +116,11 @@ async function runArchivalCheck() {
 
     // ── 2. Complaint archival check ────────────────────────────────────
     if (daysSinceClosure >= COMPLAINT_ARCHIVE_DAYS) {
-      // Move to archived store
-      archivedComplaints.push({
-        ...complaint,
-        archived:   true,
-        archivedAt: now,
-        archivalNote: `Archived after ${COMPLAINT_ARCHIVE_DAYS} days post-closure. Metadata retained for compliance. Attachments purged per retention policy.`,
-      });
-
-      // Mark as archived in live store (excluded from KPI/live queries)
+      // Marking it archived IS the archival — see getAllArchived(). This write
+      // used to be discarded (the columns did not exist and buildSet dropped
+      // the keys), so `complaint.archived` above was never true and every
+      // eligible complaint was re-archived on every tick, duplicating the
+      // audit entry each time.
       await complaintStore.update(complaint.complaintNo, { archived: true, archivedAt: now });
 
       logArchival({
@@ -149,7 +155,7 @@ async function runArchivalCheck() {
 }
 
 // ── Policy summary (for GET /api/archive/policy) ──────────────────────────
-function getPolicy() {
+async function getPolicy() {
   return {
     enabled: ARCHIVE_ENABLED,
     tickHours: ARCHIVE_TICK_HOURS,
@@ -168,8 +174,9 @@ function getPolicy() {
       },
     ],
     currentStats: {
-      totalArchived: archivedComplaints.length,
-      archivalLogEntries: archivalLog.length,
+      totalArchived: (await getAllArchived()).length,
+      // Scoped to this process — see archivalLog above.
+      archivalLogEntriesThisRun: archivalLog.length,
     },
   };
 }
@@ -180,6 +187,13 @@ let archiveInterval = null;
 function startArchivalEngine() {
   if (!ARCHIVE_ENABLED) {
     console.log("🗄️  [ARCHIVAL] Disabled (ARCHIVE_ENABLED=false)");
+    return;
+  }
+  // Section 12.8 marks archival off during the pilot, and GET /api/rollout
+  // reports it off — but nothing consulted the flag, so the engine ran anyway
+  // and the reported state was simply untrue.
+  if (!rollout.isFeatureEnabled("archival")) {
+    console.log(`🗄️  [ARCHIVAL] Disabled — not enabled in ${rollout.currentPhase.label}`);
     return;
   }
 

@@ -2,7 +2,7 @@
 // MASTER DATA ROUTES  —  /api/master-data
 // =========================================================================
 const express = require("express");
-const router = express.Router();
+const router = require("../utils/asyncRoute").safeRouter();
 const masterData = require("../data/masterData");
 const sap = require("../services/sapService");
 const audit = require("../data/auditLog");

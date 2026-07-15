@@ -2,25 +2,22 @@
 // API CLIENT
 // Thin fetch wrapper that:
 //   • prefixes every path with API_BASE_URL
-//   • injects the JWT as  Authorization: Bearer <token>
+//   • sends the httpOnly auth cookie via credentials: "include"
 //   • parses JSON and throws a rich Error on non-2xx
-//   • auto-logs-out + redirects on 401 (expired/invalid token)
+//   • auto-logs-out + redirects on 401 (expired/invalid session)
+//
+// There is deliberately no token handling here. The JWT lives in an httpOnly
+// cookie that this code cannot read — the browser attaches it automatically.
+// That's the point: script injected into the page has nothing to steal.
 // ============================================================
 window.CCMS = window.CCMS || {};
 
 CCMS.api = (function () {
   const cfg = CCMS.config;
 
-  function token() {
-    return localStorage.getItem(cfg.TOKEN_STORAGE_KEY);
-  }
-
   async function request(method, path, body, opts) {
     opts = opts || {};
     const headers = { Accept: "application/json" };
-
-    const t = token();
-    if (t && !opts.noAuth) headers["Authorization"] = "Bearer " + t;
 
     let payload;
     if (body !== undefined && body !== null) {
@@ -41,6 +38,9 @@ CCMS.api = (function () {
         method,
         headers,
         body: payload,
+        // Sends the httpOnly auth cookie. Required because the frontend
+        // (:5173) and API (:3000) are different origins.
+        credentials: "include",
         signal: controller.signal,
       });
     } catch (networkErr) {

@@ -62,7 +62,7 @@ CCMS.views.masterData = async function (mount) {
       panel.appendChild(el("div.card-head", {}, [el("h3", { text: res.entity + " · " + (res.count || rows.length) + " records" })]));
       if (!rows.length) { panel.appendChild(CCMS.ui.empty("No records.")); return; }
       panel.appendChild(dataTable(rows));
-    } catch (err) { CCMS.ui.clear(panel); panel.appendChild(CCMS.ui.errorBox(err.message)); }
+    } catch (err) { CCMS.ui.clear(panel); panel.appendChild(CCMS.ui.errorBox(err)); }
   }
 
   function dataTable(rows) {
@@ -102,17 +102,48 @@ CCMS.views.sap = async function (mount) {
   ]));
   mount.appendChild(out);
 
-  btn.addEventListener("click", async () => {
-    btn.disabled = true; btn.textContent = "Syncing…";
+  btn.addEventListener("click", () => CCMS.ui.runAsync(btn, async () => {
     CCMS.ui.clear(out);
     try {
       const res = await CCMS.api.post("/api/master-data/sap-sync", {});
+      const r = res.result || res;
       toast("SAP sync complete.", "success");
-      out.appendChild(el("div.card-head", {}, [el("h3", { text: "Last sync result" })]));
-      out.appendChild(el("pre.code", { text: JSON.stringify(res.result || res, null, 2) }));
-    } catch (err) { out.appendChild(CCMS.ui.errorBox(err.message)); toast(err.message, "error"); }
-    finally { btn.disabled = false; btn.textContent = "Run nightly batch sync now"; }
-  });
+
+      // Was a JSON dump. The result is really three things: when it ran, what
+      // came back per entity, and whether anything failed.
+      out.appendChild(el("div.card-head", {}, [
+        el("h3", { text: "Last sync result" }),
+        CCMS.ui.pill(Object.keys(r.errors || {}).length ? "Completed with errors" : "Success",
+          Object.keys(r.errors || {}).length ? "pill-danger" : "pill-ok"),
+      ]));
+      out.appendChild(el("p.muted.sm", { text: "Ran " + CCMS.ui.dateFmt(r.timestamp) }));
+
+      const synced = r.synced || {};
+      const counts = Object.keys(synced).filter((k) => typeof synced[k] === "number");
+      if (counts.length) {
+        const row = el("div.kpi-row");
+        counts.forEach((k) => row.appendChild(el("div.kpi-tile", {}, [
+          el("div.kpi-value", { text: String(synced[k]) }),
+          el("div.kpi-label", { text: humanEntity(k) }),
+        ])));
+        out.appendChild(row);
+      }
+      // A note (e.g. "MOCK mode — already seeded") is information, not an entity
+      // count, and belongs where it can be read rather than buried in JSON.
+      if (synced.note) out.appendChild(CCMS.ui.gate({ name: "Mock mode", state: "na", why: synced.note }));
+
+      const errs = Object.keys(r.errors || {});
+      errs.forEach((k) => out.appendChild(CCMS.ui.gate({
+        name: humanEntity(k) + " failed to sync", state: "blocked", why: String(r.errors[k]),
+      })));
+      if (!counts.length && !errs.length && !synced.note) out.appendChild(CCMS.ui.empty("Nothing to sync."));
+    } catch (err) { out.appendChild(CCMS.ui.errorBox(err)); CCMS.ui.errorToast(err); }
+  }));
+
+  function humanEntity(k) {
+    return ({ customers: "Customers", products: "Products / SKUs", salesPolicies: "Sales policies", invoices: "Invoices" })[k]
+      || k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+  }
 };
 
 // ── Rollout ────────────────────────────────────────────────
@@ -123,16 +154,80 @@ CCMS.views.rollout = async function (mount) {
     el("div", {}, [el("h1", { text: "Phased rollout" }), el("p.muted", { text: "Section 12.8 — current rollout phase and feature flags." })]),
   ]));
   const card = el("div.card"); mount.appendChild(card);
-  card.appendChild(CCMS.ui.spinner("Loading…"));
+  const flagCard = el("div.card"); mount.appendChild(flagCard);
+  card.appendChild(el("div.skel.skel-title"));
+  card.appendChild(CCMS.ui.skelRows(3));
+
   try {
     const res = await CCMS.api.get("/api/rollout");
     CCMS.ui.clear(card);
+    CCMS.ui.clear(flagCard);
+
+    // This screen used to be JSON.stringify in a <pre>. The reader had to
+    // parse a blob to answer the only two questions it exists for: which phase
+    // are we in, and what does that phase allow?
     card.appendChild(el("div.card-head", {}, [
       el("h3", { text: "Rollout status" }),
-      CCMS.ui.pill("Phase " + (res.phase || res.rolloutPhase || "?"), "pill-ok"),
+      CCMS.ui.pill("Phase " + (res.currentPhase || "?"), "pill-ok"),
     ]));
-    card.appendChild(el("pre.code", { text: JSON.stringify(res, null, 2) }));
-  } catch (err) { CCMS.ui.clear(card); card.appendChild(CCMS.ui.errorBox(err.message)); }
+
+    // Phase stepper — where we are in a three-step plan, not a number.
+    const phases = res.allPhases || [];
+    const stepper = el("div.phase-track");
+    phases.forEach((p) => {
+      const state = p.active ? "current" : (p.phase < res.currentPhase ? "done" : "todo");
+      stepper.appendChild(el("div.phase-step." + state, {}, [
+        el("div.phase-dot", { text: p.active ? String(p.phase) : (p.phase < res.currentPhase ? "✓" : String(p.phase)) }),
+        el("div.phase-body", {}, [
+          el("div.phase-name", { text: String(p.label || "").replace(/^Phase \d+ — /, "") }),
+          el("div.phase-desc", { text: p.description || "" }),
+        ]),
+      ]));
+    });
+    card.appendChild(stepper);
+
+    // What the active phase actually admits — the thing the gate enforces.
+    card.appendChild(el("div.kv-block", {}, [
+      el("div.kv", {}, [
+        el("span.kv-label", { text: "Business lines" }),
+        el("span.kv-value", {}, (res.allowedBusinessLines || []).map((b) => CCMS.ui.pill(b, "pill-ok"))),
+      ]),
+      el("div.kv", {}, [
+        el("span.kv-label", { text: "Regions" }),
+        el("span.kv-value", {}, res.allowedRegions === "*"
+          ? [CCMS.ui.pill("All regions", "pill-ok")]
+          : (res.allowedRegions || []).map((r) => CCMS.ui.pill(r, "pill-ok"))),
+      ]),
+      el("div.kv", {}, [
+        el("span.kv-label", { text: "Concurrent complaints" }),
+        el("span.kv-value", { text: res.maxConcurrentComplaints == null ? "No limit" : String(res.maxConcurrentComplaints) }),
+      ]),
+    ]));
+    if (res.howToAdvance) card.appendChild(el("p.muted.sm", { text: res.howToAdvance }));
+
+    // Feature flags, as on/off rather than a JSON object. These are real now:
+    // the archival engine consults them.
+    flagCard.appendChild(el("div.card-head", {}, [el("h3", { text: "Feature flags" })]));
+    const feats = res.features || {};
+    const grid = el("div.flag-grid");
+    Object.keys(feats).forEach((k) => {
+      const on = feats[k] === true;
+      grid.appendChild(el("div.flag." + (on ? "on" : "off"), {}, [
+        el("span.flag-dot", { text: on ? "✓" : "–", "aria-hidden": "true" }),
+        el("span.flag-name", { text: humanFlag(k) }),
+        el("span.flag-state", { text: on ? "On" : "Off" }),
+      ]));
+    });
+    flagCard.appendChild(grid);
+  } catch (err) { CCMS.ui.clear(card); card.appendChild(CCMS.ui.errorBox(err)); }
+
+  function humanFlag(k) {
+    return ({
+      slaEngine: "SLA auto-escalation", notifications: "Email notifications",
+      rbac: "Role-based access control", kpiDashboard: "KPI dashboard",
+      archival: "Data retention & archival", repeatDetection: "Repeat complaint detection",
+    })[k] || k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+  }
 };
 
 // ── Archive ────────────────────────────────────────────────
@@ -158,9 +253,33 @@ CCMS.views.archive = async function (mount) {
         CCMS.api.get("/api/archive/policy").catch(() => ({})),
         CCMS.api.get("/api/archive").catch(() => ({ complaints: [] })),
       ]);
+      // Was a JSON dump of the policy object. It is a set of rules with a
+      // window, an effect and a reason — which is readable prose, not a blob.
       CCMS.ui.clear(policyCard);
-      policyCard.appendChild(el("div.card-head", {}, [el("h3", { text: "Retention policy" })]));
-      policyCard.appendChild(el("pre.code", { text: JSON.stringify(policy, null, 2) }));
+      policyCard.appendChild(el("div.card-head", {}, [
+        el("h3", { text: "Retention policy" }),
+        CCMS.ui.pill(policy.enabled ? "Engine on" : "Engine off", policy.enabled ? "pill-ok" : "pill-warn"),
+      ]));
+      if (policy.tickHours) {
+        policyCard.appendChild(el("p.muted.sm", { text: "Checks every " + policy.tickHours + " hour(s)." }));
+      }
+      (policy.rules || []).forEach((r) => {
+        policyCard.appendChild(el("div.rule", {}, [
+          el("div.rule-head", {}, [
+            el("strong", { text: r.rule }),
+            CCMS.ui.pill(r.window, "pill-warn"),
+          ]),
+          el("div.rule-action", { text: r.action }),
+          r.rationale ? el("div.rule-why", { text: r.rationale }) : null,
+        ]));
+      });
+      const stats = policy.currentStats || {};
+      if (stats.totalArchived != null) {
+        policyCard.appendChild(el("p.muted.sm", {
+          text: stats.totalArchived + " complaint(s) archived to date"
+            + (stats.archivalLogEntriesThisRun != null ? " · " + stats.archivalLogEntriesThisRun + " action(s) logged since this server started" : ""),
+        }));
+      }
 
       CCMS.ui.clear(listCard);
       const rows = arch.complaints || [];
@@ -175,11 +294,11 @@ CCMS.views.archive = async function (mount) {
         el("td", { text: CCMS.ui.dateFmt(c.archivedAt) }),
       ])));
       t.appendChild(tb); listCard.appendChild(t);
-    } catch (err) { CCMS.ui.clear(listCard); listCard.appendChild(CCMS.ui.errorBox(err.message)); }
+    } catch (err) { CCMS.ui.clear(listCard); listCard.appendChild(CCMS.ui.errorBox(err)); }
   }
 
   async function run() {
     try { const res = await CCMS.api.post("/api/archive/run", {}); toast("Archival check ran.", "success"); load(); }
-    catch (err) { toast(err.message, "error"); }
+    catch (err) { CCMS.ui.errorToast(err); }
   }
 };

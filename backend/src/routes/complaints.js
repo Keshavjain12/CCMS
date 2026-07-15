@@ -14,7 +14,7 @@
 // =========================================================================
 
 const express = require("express");
-const router = express.Router();
+const router = require("../utils/asyncRoute").safeRouter();
 const {
   complaintStore,
   lineItemStore,
@@ -24,6 +24,8 @@ const {
   capaStore,
   creditNoteStore,
   SAMPLE_STATUSES,
+  VISIT_STATUSES,
+  VISIT_OUTCOMES,
 } = require("../data/transactionalStore");
 const masterData = require("../data/masterData");
 const sap = require("../services/sapService");
@@ -58,25 +60,11 @@ async function enrich(complaint) {
 
 // =========================================================================
 // READ SCOPING (Section 12.3 — least privilege on reads)
-// -------------------------------------------------------------------------
-// A junior role must not be able to read settlement values / customer data /
-// MD approvals for the ENTIRE company. A complaint is visible to a user when:
-//   • they are Admin (R000) or the Managing Director (R009) — full oversight;
-//   • they reported/created it;
-//   • it is currently in their role's action queue (their role may act on the
-//     current status — or its prior status when parked in Clarification_Sought);
-//   • they have personally acted on it at some point (per the audit trail,
-//     whose actorId is now stamped from the JWT, so it can't be spoofed).
-// The backend is the enforcer here; the frontend filters are only cosmetic.
+// The rule itself lives in services/visibility.js so that every endpoint
+// returning complaint data — including the KPI dashboard — enforces the same
+// one. The backend is the enforcer; frontend filters are only cosmetic.
 // =========================================================================
-async function visibleToUser(user, complaint) {
-  if (!complaint) return false;
-  if (user.isAdmin || user.roleId === "R009") return true;
-  if (complaint.reportedBy && complaint.reportedBy === user.userId) return true;
-  if (canActOnStatus(user, complaint.status, null, complaint._priorStatus).allowed) return true;
-  const entries = await audit.getForComplaint(complaint.complaintNo);
-  return entries.some((e) => e.actorId === user.userId);
-}
+const { visibleToUser, filterVisible } = require("../services/visibility");
 
 async function denyIfHidden(req, res, complaint) {
   if (await visibleToUser(req.user, complaint)) return false;
@@ -155,6 +143,15 @@ router.post("/", async (req, res) => {
       ? masterData.findProduct(firstItem.sapMaterialNo)
       : null;
     const businessLine = productInfo?.businessLine || customerRecord.businessLine || "Paper";
+
+    // ── Rollout gate (Section 12.8) ──────────────────────────────────
+    // Phases 1 and 2 limit which business lines and regions may file at all.
+    // Checked here, once both the business line and the customer's region are
+    // known, and before any record is written.
+    const gate = rollout.checkRolloutGate(businessLine, customerRecord.region);
+    if (!gate.allowed) {
+      return res.status(403).json({ error: gate.reason, phase: gate.phase, hint: gate.hint });
+    }
 
     const policy = masterData.findApplicablePolicy(businessLine, customerRecord.segment);
 
@@ -314,11 +311,11 @@ router.get("/", async (req, res) => {
   //    over-fetch / broken-access-control finding: the list no longer dumps
   //    every complaint to every authenticated role.
   // 3) ?limit/?offset bounding so the payload can't grow unbounded.
-  const all = await complaintStore.getAll(req.query);
-  // visibleToUser reads the audit trail, so it's async — resolve the checks
-  // concurrently, then filter on the results.
-  const canSee = await Promise.all(all.map((c) => visibleToUser(req.user, c)));
-  const visible = all.filter((_, i) => canSee[i]);
+  // archived is forced, not merged from req.query: this is the live list, and
+  // req.query is the caller's. Left to the default, ?archived=true would have
+  // served the archive from here and sidestepped the Admin-only /api/archive.
+  const all = await complaintStore.getAll({ ...req.query, archived: false });
+  const visible = await filterVisible(req.user, all);
   // Paginate FIRST, then enrich only the returned page: enrich() costs six
   // queries per complaint, so enriching the whole list would be wasteful.
   const page = paginate(visible, req.query, "data");
@@ -510,8 +507,10 @@ router.post("/:complaintNo/samples", requireRoles(["R003","R004"]), async (req, 
     createdBy:      req.user.userId, // authoritative — overrides any body value
   });
 
-  // Update complaint's sample reference
-  await complaintStore.update(complaint.complaintNo, { _latestSample: sample });
+  // No write-back of the sample reference: _latestSample is not a column, it
+  // is derived per read by the LATERAL join in the store, so this update was
+  // discarded by buildSet. It is a leftover from the in-memory store, where
+  // the reference had to be kept in sync by hand.
 
   await audit.log({
     complaintNo: complaint.complaintNo,
@@ -547,8 +546,7 @@ router.put("/:complaintNo/samples/:sampleId", requireRoles(["R003","R004"]), asy
   const sample = await sampleStore.update(req.params.sampleId, updates);
   if (!sample) return res.status(404).json({ error: "Sample not found" });
 
-  // Sync latest sample reference on complaint
-  await complaintStore.update(complaint.complaintNo, { _latestSample: sample });
+  // No write-back needed — see the sample-create route above.
 
   await audit.log({
     complaintNo: complaint.complaintNo,
@@ -601,9 +599,28 @@ router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), async
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
   const { visitStatus, visitDate, findings, customerAcknowledgement, outcome } = req.body;
-  const visit = await visitStore.update(req.params.visitId, {
-    visitStatus, visitDate, findings, customerAcknowledgement, outcome,
-  });
+
+  // visit_status and outcome are CHECK-constrained columns. Reject bad values
+  // here with a 400 the caller can act on, rather than letting Postgres raise
+  // a constraint violation. Empty strings mean "not recorded yet" and are
+  // skipped below, so they never reach the constraint.
+  if (visitStatus && !VISIT_STATUSES.includes(visitStatus)) {
+    return res.status(400).json({ error: `Invalid visitStatus. Valid: ${VISIT_STATUSES.join(", ")}` });
+  }
+  if (outcome && !VISIT_OUTCOMES.includes(outcome)) {
+    return res.status(400).json({ error: `Invalid outcome. Valid: ${VISIT_OUTCOMES.join(", ")}` });
+  }
+
+  // Only write what was actually supplied — passing every key through would
+  // null out fields the caller never mentioned.
+  const updates = {};
+  if (visitStatus)            updates.visitStatus = visitStatus;
+  if (visitDate)              updates.visitDate = visitDate;
+  if (findings)               updates.findings = findings;
+  if (customerAcknowledgement) updates.customerAcknowledgement = customerAcknowledgement;
+  if (outcome)                updates.outcome = outcome;
+
+  const visit = await visitStore.update(req.params.visitId, updates);
   if (!visit) return res.status(404).json({ error: "Visit not found" });
 
   await audit.log({
@@ -615,6 +632,45 @@ router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), async
   });
 
   res.json({ success: true, visit });
+});
+
+// DELETE /api/complaints/:complaintNo/visits/:visitId
+// Undo a visit that was scheduled by mistake. Scheduling is one click, so
+// mis-scheduling is easy and needs a way back.
+//
+// A visit that has been carried out is never deleted — it is a record of
+// something that happened, and Section 7.1 keeps it. So removal is limited to
+// visits holding no recorded work; anything else must be Cancelled, which
+// preserves the row. The removal itself is audited, leaving Scheduled →
+// Removed in the trail rather than an audit entry pointing at nothing.
+router.delete("/:complaintNo/visits/:visitId", requireRoles(["R010", "R011"]), async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
+  if (!complaint) return res.status(404).json({ error: "Complaint not found" });
+
+  const visit = await visitStore.getById(req.params.visitId);
+  // Guard against removing a visit via an unrelated complaint's URL.
+  if (!visit || visit.complaintNo !== complaint.complaintNo) {
+    return res.status(404).json({ error: "Visit not found" });
+  }
+
+  if (visit.visitDate || visit.findings || visit.outcome || visit.customerAcknowledgement) {
+    return res.status(409).json({
+      error: "This visit has recorded work and cannot be removed. Set its status to Cancelled instead.",
+    });
+  }
+
+  await visitStore.remove(visit.visitId);
+
+  await audit.log({
+    complaintNo: complaint.complaintNo,
+    action:      "Customer Visit Removed",
+    actorType:   "User",
+    actorId:     req.user.userId,
+    actorRole:   req.user.roleName,
+    remarks:     `Scheduled ${visit.visitType} visit removed before it took place. No visit record existed to retain.`,
+  });
+
+  res.json({ success: true, removed: visit.visitId });
 });
 
 // =========================================================================

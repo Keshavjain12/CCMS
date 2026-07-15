@@ -49,7 +49,7 @@ CCMS.roles = (function () {
 
   // ── Portal identity per role (drives branding + landing) ──────────
   const PORTALS = {
-    R000: { portal: "Admin Console",         dept: "System",              accent: "#7c3aed", icon: "⚙" },
+    R000: { portal: "Admin Console",         dept: "System",              accent: "#0355a6", icon: "⚙" },
     R001: { portal: "Technical Services",    dept: "TS",                  accent: "#0ea5e9", icon: "🔧" },
     R002: { portal: "Technical Services",    dept: "TS",                  accent: "#0ea5e9", icon: "🔧" },
     R003: { portal: "Quality Control",       dept: "QC",                  accent: "#16a34a", icon: "🧪" },

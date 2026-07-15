@@ -65,7 +65,12 @@ INSERT INTO customers (customer_id, name, type, region, segment, business_line,
   ('2000001', 'PetroChemicals Ltd',         'Customer',    'Northern India', 'Customer-Standard',    'Chemical',
    'Anil Kumar',   'purchase@petrochemicals.example.com',  '9112233445', 'Noida',   'Uttar Pradesh',  '09AABCP1234R1ZC', false, '2000001', 'mobile', true),
   ('2000002', 'National Packaging Co.',     'Distributor', 'Eastern India',  'Distributor-Premium',  'Paper',
-   'Debashish Roy','info@natpack.example.com',             '9033445566', 'Kolkata', 'West Bengal',    '19AABCN9876Q1ZD', true,  '2000002', 'mobile', true)
+   'Debashish Roy','info@natpack.example.com',             '9033445566', 'Kolkata', 'West Bengal',    '19AABCN9876Q1ZD', true,  '2000002', 'mobile', true),
+  -- The only Paper customer in the north, and so the only one that can file
+  -- under the Phase 1 pilot (Section 12.8). Without it the pilot phase is
+  -- untestable: the gate would reject every seeded customer.
+  ('1000789', 'Himalaya Paper Mart',        'Customer',    'Northern India', 'Customer-Standard',    'Paper',
+   'Priya Nair',  'orders@himalayapaper.example.com',      '9445566778', 'Ludhiana','Punjab',        '03AABCH5678K1Z2', false, '1000789', 'mobile', true)
 ON CONFLICT (customer_id) DO NOTHING;
 
 -- ── Products / SKUs ─────────────────────────────────────────────────────
@@ -117,7 +122,9 @@ ON CONFLICT (policy_id) DO NOTHING;
 INSERT INTO invoices (invoice_number, invoice_date, sold_to_party, payment_terms, net_amount, currency) VALUES
   ('90001234', '2026-05-12', '1000123', 'NT30',  45000.00, 'INR'),
   ('90005678', '2026-06-02', '1000456', 'NT45', 128500.00, 'INR'),
-  ('90009999', '2026-04-20', '2000001', 'NT60', 175000.00, 'INR')
+  ('90009999', '2026-04-20', '2000001', 'NT60', 175000.00, 'INR'),
+  -- Paper / North India — the invoice that makes the Phase 1 pilot testable.
+  ('90002468', '2026-07-01', '1000789', 'NT30',  36000.00, 'INR')
 ON CONFLICT (invoice_number) DO NOTHING;
 
 INSERT INTO invoice_line_items (invoice_number, invoice_item_no, sap_material_no, material_description,
@@ -125,7 +132,8 @@ INSERT INTO invoice_line_items (invoice_number, invoice_item_no, sap_material_no
   ('90001234', '10', 'MAT-1002', 'Copier Paper 80 GSM A4',   500, 'Ream',  45000.00,    90.00),
   ('90005678', '10', 'MAT-1001', 'Maplitho Paper 70 GSM A4', 1000,'Ream',  80000.00,    80.00),
   ('90005678', '20', 'MAT-1004', 'Newsprint Roll 45 GSM',    2,   'Tonne', 48500.00, 24250.00),
-  ('90009999', '10', 'MAT-2001', 'Caustic Soda Lye 48%',     5,   'MT',   175000.00, 35000.00)
+  ('90009999', '10', 'MAT-2001', 'Caustic Soda Lye 48%',     5,   'MT',   175000.00, 35000.00),
+  ('90002468', '10', 'MAT-1002', 'Copier Paper 80 GSM A4',   400, 'Ream',  36000.00,    90.00)
 ON CONFLICT (invoice_number, invoice_item_no) DO NOTHING;
 
 COMMIT;

@@ -16,25 +16,104 @@ CCMS.views.complaintDetail = async function (mount, params) {
   ]));
   const container = el("div#detail-body");
   mount.appendChild(container);
-  container.appendChild(CCMS.ui.spinner("Loading complaint " + no + "…"));
+  // Skeleton, not a spinner on a blank page: the shape of the record is known
+  // before the data is, so hold it and let the content land into it.
+  container.appendChild(detailSkeleton());
 
   let masterCache = null;
+  let lastStatus = null;   // to animate the workflow step that just advanced
+
+  // Live nodes an action can replace individually — see reload(). Declared
+  // here, above the first load(): render() populates it, so it must exist
+  // before anything renders.
+  const parts = {};
+
   await load();
 
   async function load() {
     try {
-      const c = await CCMS.api.get("/api/complaints/" + encodeURIComponent(no));
-      render(c);
+      // Gates come from the backend's own evaluation rather than being
+      // recomputed here. This view used to hardcode `settlementValue > 100000`
+      // and `> 50000` — copies of MD_APPROVAL_THRESHOLD and VISIT_THRESHOLD
+      // that would silently lie the moment the .env changed. Same route, no
+      // API change: it already returns exactly this.
+      const [c, seq] = await Promise.all([
+        CCMS.api.get("/api/complaints/" + encodeURIComponent(no)),
+        CCMS.api.get("/api/complaints/" + encodeURIComponent(no) + "/status-sequence").catch(() => null),
+      ]);
+      render(c, (seq && seq.gates) || null);
     } catch (err) {
       CCMS.ui.clear(container);
-      container.appendChild(CCMS.ui.errorBox(err.message));
+      container.appendChild(CCMS.ui.errorBox(err));
     }
   }
 
-  function reload() { CCMS.ui.clear(container); container.appendChild(CCMS.ui.spinner("Refreshing…")); load(); }
+  // ── Targeted refresh ──────────────────────────────────────────────
+  // An action changes the status and what follows from it — never the invoice,
+  // the customer or the line items. Rebuilding the whole page threw away the
+  // reader's scroll position and made them watch eight cards repaint to learn
+  // that one badge changed. This swaps only what the action can affect, in
+  // place, and leaves the page where it was.
+  // (`parts` is declared at the top — render() populates it before this runs.)
 
-  function render(c) {
+  function swap(key, next) {
+    const prev = parts[key];
+    if (!prev || !prev.parentNode) return;
+    // Carry the section identity across the swap, or the sticky tabs stop
+    // finding their anchors after the first action.
+    if (prev.id) next.id = prev.id;
+    if (prev.classList.contains("detail-section")) next.classList.add("detail-section");
+    prev.parentNode.replaceChild(next, prev);
+    parts[key] = next;
+  }
+
+  async function reload() {
+    const before = lastStatus;
+    try {
+      const [c, seq] = await Promise.all([
+        CCMS.api.get("/api/complaints/" + encodeURIComponent(no)),
+        CCMS.api.get("/api/complaints/" + encodeURIComponent(no) + "/status-sequence").catch(() => null),
+      ]);
+      const gates = (seq && seq.gates) || null;
+
+      // If the whole shape of the page changes — a terminal status drops the
+      // action panel, a new section appears — a full render is the honest
+      // thing. Otherwise swap the affected parts.
+      const canAct = CCMS.roles.canActOnStatus(user.roleId, c.status, c._priorStatus);
+      const terminal = ["Closed", "Auto_Closed", "Rejected"].includes(c.status);
+
+      swap("status", statusBadge(c.status));
+      swap("workflow", workflowStrip(c, before));
+      swap("actions", actionPanel(c, canAct, terminal, gates));
+      swap("gates", gatesCard(c, gates));
+      swap("samples", samplesCard(c));
+      swap("visits", visitsCard(c));
+      swap("capa", capaCard(c));
+      swap("credit", creditNoteCard(c));
+      swap("audit", auditCard(c));
+      lastStatus = c.status;
+    } catch (err) {
+      // A failed refresh must not leave a stale page pretending to be current.
+      CCMS.ui.clear(container);
+      container.appendChild(CCMS.ui.errorBox(err));
+    }
+  }
+
+  function detailSkeleton() {
+    const { skelLines, skelRows, el: e } = CCMS.ui;
+    return e("div", {}, [
+      e("div.card", {}, [e("div.skel.skel-title"), skelLines(2), e("div.skel.skel-row")]),
+      e("div.card", {}, [e("div.skel.skel-title"), skelRows(2)]),
+      e("div.detail-grid", {}, [
+        e("div.detail-col", {}, [e("div.card", {}, [e("div.skel.skel-title"), skelRows(4)])]),
+        e("div.detail-col", {}, [e("div.card", {}, [e("div.skel.skel-title"), skelLines(3)])]),
+      ]),
+    ]);
+  }
+
+  function render(c, gates) {
     CCMS.ui.clear(container);
+    container.classList.add("view-enter");
 
     const canAct = CCMS.roles.canActOnStatus(user.roleId, c.status, c._priorStatus);
     const terminal = ["Closed", "Auto_Closed", "Rejected"].includes(c.status);
@@ -47,8 +126,8 @@ CCMS.views.complaintDetail = async function (mount, params) {
           el("p.muted", { text: c.title || "" }),
         ]),
         el("div.detail-status", {}, [
-          statusBadge(c.status),
-          c._sapFallback ? pill("SAP fallback", "pill-danger") : null,
+          (parts.status = statusBadge(c.status)),
+          c.sapValidationPending ? pill("Pending SAP validation", "pill-warn") : null,
         ]),
       ]),
       el("div.fact-grid", {}, [
@@ -71,25 +150,65 @@ CCMS.views.complaintDetail = async function (mount, params) {
     ]));
 
     // ── Workflow progress ──
-    container.appendChild(workflowStrip(c));
+    container.appendChild((parts.workflow = workflowStrip(c, null)));
 
-    // ── Two-column body ──
+    // ── Section tabs ──
+    // The page was eight stacked cards and one long scroll; on a phone the
+    // audit trail was several screens below the action you came to take.
+    const sections = [];
     const left = el("div.detail-col");
     const right = el("div.detail-col.detail-side");
-    container.appendChild(el("div.detail-grid", {}, [left, right]));
+
+    function section(id, label, count, node) {
+      node.id = "sec-" + id;
+      node.classList.add("detail-section");
+      sections.push({ id, label, count });
+      return node;
+    }
 
     // LEFT: line items, samples, capa, visits, credit notes
-    left.appendChild(lineItemsCard(c));
-    if (c.samples && c.samples.length || isQC()) left.appendChild(samplesCard(c));
-    if (c.capas && c.capas.length || isOps()) left.appendChild(capaCard(c));
-    if (c.visits && c.visits.length || isVisitRole()) left.appendChild(visitsCard(c));
-    if (c.creditNotes && c.creditNotes.length || isFinance()) left.appendChild(creditNoteCard(c));
-    left.appendChild(auditCard(c));
+    // Each node is kept in `parts` so an action can replace just that card.
+    left.appendChild(section("items", "Line items", (c.lineItems || []).length, lineItemsCard(c)));
+    if ((c.samples || []).length || isQC()) left.appendChild(section("samples", "Samples", (c.samples || []).length, (parts.samples = samplesCard(c))));
+    if ((c.capas || []).length || isOps()) left.appendChild(section("capa", "CAPA", (c.capas || []).length, (parts.capa = capaCard(c))));
+    if ((c.visits || []).length || isVisitRole()) left.appendChild(section("visits", "Visits", (c.visits || []).length, (parts.visits = visitsCard(c))));
+    if ((c.creditNotes || []).length || isFinance()) left.appendChild(section("credit", "Credit note", (c.creditNotes || []).length, (parts.credit = creditNoteCard(c))));
+    left.appendChild(section("audit", "Audit", null, (parts.audit = auditCard(c))));
 
     // RIGHT: action panel + gates
-    right.appendChild(actionPanel(c, canAct, terminal));
-    right.appendChild(gatesCard(c));
-    if (c.attachments && c.attachments.length) right.appendChild(attachmentsCard(c));
+    right.appendChild((parts.actions = actionPanel(c, canAct, terminal, gates)));
+    right.appendChild((parts.gates = gatesCard(c, gates)));
+    if ((c.attachments || []).length) right.appendChild(attachmentsCard(c));
+
+    container.appendChild(subnav(sections));
+    container.appendChild(el("div.detail-grid", {}, [left, right]));
+
+    lastStatus = c.status;
+  }
+
+  // ── Sticky section tabs ──
+  function subnav(sections) {
+    const nav = el("nav.subnav", { "aria-label": "Complaint sections" });
+    sections.forEach((s, i) => {
+      const btn = el("button.subnav-item" + (i === 0 ? ".active" : ""), {
+        type: "button",
+        text: s.label,
+        onClick: () => {
+          const target = document.getElementById("sec-" + s.id);
+          if (!target) return;
+          target.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+          nav.querySelectorAll(".subnav-item").forEach((n) => n.classList.remove("active"));
+          btn.classList.add("active");
+        },
+      });
+      if (s.count != null) btn.appendChild(el("span.subnav-count", { text: String(s.count) }));
+      nav.appendChild(btn);
+    });
+    return nav;
+  }
+
+  function prefersReducedMotion() {
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
   // ── role predicates ──
@@ -106,14 +225,23 @@ CCMS.views.complaintDetail = async function (mount, params) {
   }
 
   // ── Workflow strip ──
-  function workflowStrip(c) {
+  // `previous` is the status this strip last showed. The step it names is the
+  // one that just completed, so it gets a one-shot animation — the status
+  // change is then something you see happen rather than something you notice
+  // afterwards by comparing.
+  function workflowStrip(c, previous) {
     const seq = (c.statusSequence || []).length ? c.statusSequence : defaultSeq();
     const curIdx = seq.indexOf(c.status);
+    const movedFrom = previous && previous !== c.status ? seq.indexOf(previous) : -1;
     const strip = el("div.card.workflow", {}, [el("div.card-head", {}, [el("h3", { text: "Workflow" })])]);
     const track = el("div.wf-track");
     seq.forEach((st, i) => {
       const state = i < curIdx ? "done" : i === curIdx ? "current" : "todo";
-      track.appendChild(el("div.wf-step." + state, {}, [
+      // Only animate a step that genuinely advanced (moved forward past it).
+      const justDone = i === movedFrom && movedFrom > -1 && movedFrom < curIdx;
+      track.appendChild(el("div.wf-step." + state + (justDone ? ".just-done" : ""), {
+        "aria-current": state === "current" ? "step" : null,
+      }, [
         el("span.wf-dot", { text: i < curIdx ? "✓" : String(i + 1) }),
         el("span.wf-name", { text: st.replace(/_/g, " ") }),
       ]));
@@ -146,10 +274,13 @@ CCMS.views.complaintDetail = async function (mount, params) {
       tb.appendChild(el("tr", {}, [
         el("td", {}, [el("strong", { text: li.productName || li.sapMaterialNo || "—" }), el("small.muted", { text: " " + (li.sapMaterialNo || "") })]),
         el("td", { text: li.complaintTypeName || li.complaintTypeId || "—" }),
-        el("td", { text: (li.invoiceQty != null ? li.invoiceQty : "—") + " " + (li.uom || "") }),
-        el("td", { text: String(li.defectiveQty != null ? li.defectiveQty : "—") }),
-        el("td", { text: money(li.unitPrice) }),
-        el("td", {}, [el("strong", { text: money((li.unitPrice || 0) * (li.defectiveQty || 0)) })]),
+        el("td.num", { text: (li.invoiceQty != null ? li.invoiceQty : "—") + " " + (li.uom || "") }),
+        el("td.num", { text: String(li.defectiveQty != null ? li.defectiveQty : "—") }),
+        el("td.num", { text: money(li.unitPrice) }),
+        // The server sends defectiveValue; this used to recompute unitPrice ×
+        // defectiveQty in the browser — a second implementation of a money
+        // calculation that could disagree with the figure the workflow gates on.
+        el("td.num", {}, [el("strong", { text: money(li.defectiveValue != null ? li.defectiveValue : (li.unitPrice || 0) * (li.defectiveQty || 0)) })]),
         el("td", {}, [li.sampleRequired ? pill("Required", "pill-warn") : pill("No", "pill-ok")]),
       ]));
     });
@@ -218,7 +349,14 @@ CCMS.views.complaintDetail = async function (mount, params) {
           (v.outcome ? " · Outcome: " + v.outcome : "") }),
         v.findings ? kv("Findings", v.findings) : null,
         isVisitRole() && v.visitStatus !== "Completed" && !terminalStatus(c)
-          ? el("div.sub-actions", {}, [el("button.btn.btn-xs.btn-ghost", { text: "Record outcome", onClick: () => visitUpdateForm(c, v) })])
+          ? el("div.sub-actions", {}, [
+              el("button.btn.btn-xs.btn-ghost", { text: "Record outcome", onClick: () => visitUpdateForm(c, v) }),
+              // Only offered while the visit holds no recorded work — the same
+              // rule the server enforces. Once it has, Cancelled is the way out.
+              !v.visitDate && !v.findings && !v.outcome && !v.customerAcknowledgement
+                ? el("button.btn.btn-xs.btn-ghost", { text: "✕ Remove", title: "Remove this visit — scheduled by mistake", onClick: () => removeVisit(c, v) })
+                : null,
+            ])
           : null,
       ]));
     });
@@ -289,31 +427,92 @@ CCMS.views.complaintDetail = async function (mount, params) {
           ]));
         });
       })
-      .catch((err) => { CCMS.ui.clear(list); list.appendChild(CCMS.ui.errorBox(err.message)); });
+      .catch((err) => { CCMS.ui.clear(list); list.appendChild(CCMS.ui.errorBox(err)); });
     return card;
   }
 
   // ── Gates ──
-  function gatesCard(c) {
-    const g = {
-      "Sample required": c.sampleRequired,
-      "MD approval": c.settlementValue > 100000 || c.policyForcesMdApproval,
-      "Customer visit": c.isKeyAccount || c.settlementValue > 50000 || c.visitRequested,
-      "Credit note recorded": !!c.creditNoteNumber,
-    };
+  // One description of every gate, used by both this card and the action
+  // panel. There were two: a "● Yes / ○ No" list here, and separate hint text
+  // under the buttons saying the same thing in other words — so they could
+  // disagree, and neither told you what to do about it.
+  //
+  // `gates` is the backend's own evaluation (GET …/status-sequence). When it
+  // is unavailable the flags on the complaint still describe applicability;
+  // only the thresholds — which belong to the server — are never guessed.
+  function gateList(c, gates) {
+    const g = gates || {};
+    const sampleRequired = g.sampleRequired != null ? g.sampleRequired : !!c.sampleRequired;
+    const samplePassed = g.sampleGatePassed != null ? g.sampleGatePassed : sampleReceived(c);
+    const atSampleStage = ["QC_Review", "Sample_Awaited"].includes(c.status);
+    const closed = ["Closed", "Auto_Closed"].includes(c.status);
+
+    const list = [];
+
+    list.push(!sampleRequired
+      ? { name: "Physical sample", state: "na", why: "Not required for these complaint types." }
+      : samplePassed
+        ? { name: "Physical sample", state: "met", why: "Sample received — QC review can proceed." }
+        : {
+            name: "Physical sample", state: atSampleStage ? "blocked" : "pending",
+            why: atSampleStage
+              ? "QC Review cannot be approved until the sample is physically received."
+              : "A sample must be received before QC Review can be approved.",
+            todo: "QC logs the sample, then sets it to Received",
+          });
+
+    if (g.mdApprovalRequired || c.policyForcesMdApproval) {
+      const done = passedStage(c, "MD_Approval");
+      list.push({
+        name: "MD approval",
+        state: done ? "met" : c.status === "MD_Approval" ? "pending" : "pending",
+        why: c.policyForcesMdApproval
+          ? "Required: the settlement breaches sales policy."
+          : "Required: settlement exceeds the MD approval threshold.",
+        todo: done ? null : "Managing Director approves at MD Approval",
+      });
+    }
+
+    if (g.visitRequired || c.visitRequested) {
+      const done = (c.visits || []).some((v) => v.visitStatus === "Completed");
+      list.push({
+        name: "Customer visit",
+        state: done ? "met" : "pending",
+        why: c.isKeyAccount ? "Required: key account." : "Required: settlement exceeds the visit threshold.",
+        todo: done ? null : "Sales/KAM schedules the visit and records its outcome",
+      });
+    }
+
+    list.push(c.creditNoteNumber
+      ? { name: "SAP credit note", state: "met", why: "Raised: " + c.creditNoteNumber }
+      : {
+          name: "SAP credit note", state: c.status === "Finance_Processing" ? "blocked" : closed ? "na" : "pending",
+          why: c.status === "Finance_Processing"
+            ? "The complaint cannot be closed until the credit note exists in SAP."
+            : "Finance raises this before closing.",
+          todo: c.status === "Finance_Processing" ? "Finance raises the credit note in SAP" : null,
+        });
+
+    return list;
+  }
+
+  /** Has the complaint moved past `stage` in its own sequence? */
+  function passedStage(c, stage) {
+    const seq = c.statusSequence || [];
+    const at = seq.indexOf(c.status), of = seq.indexOf(stage);
+    return of >= 0 && at >= 0 && at > of;
+  }
+
+  function gatesCard(c, gates) {
     const card = el("div.card", {}, [el("div.card-head", {}, [el("h3", { text: "Gates" })])]);
-    Object.keys(g).forEach((k) => {
-      card.appendChild(el("div.gate-row", {}, [
-        el("span.gate-icon." + (g[k] ? "on" : "off"), { text: g[k] ? "●" : "○" }),
-        el("span", { text: k }),
-        el("span.gate-state", { text: g[k] ? "Yes" : "No" }),
-      ]));
-    });
+    const list = gateList(c, gates);
+    if (!list.length) { card.appendChild(CCMS.ui.empty("No gates apply.")); return card; }
+    list.forEach((g) => card.appendChild(CCMS.ui.gate(g)));
     return card;
   }
 
   // ── Action panel (universal workflow actions) ──
-  function actionPanel(c, canAct, terminal) {
+  function actionPanel(c, canAct, terminal, gates) {
     const card = el("div.card.action-panel", {}, [el("div.card-head", {}, [el("h3", { text: "Actions" })])]);
 
     if (terminal) {
@@ -330,33 +529,81 @@ CCMS.views.complaintDetail = async function (mount, params) {
 
     card.appendChild(el("p.muted.sm", { text: "You are authorised to act at " + c.status.replace(/_/g, " ") + "." }));
 
+    // A blocking gate is the reason Approve cannot proceed. Previously the
+    // button stayed enabled, the server refused, and the user learned why from
+    // a red toast; the explanation sat below the button as advisory text.
+    const blocker = gateList(c, gates).find((g) => g.state === "blocked");
+
     const buttons = el("div.action-buttons");
     const approveLabel = user.canApprove ? "Approve / Advance" : "Forward";
-    buttons.appendChild(el("button.btn.btn-primary.btn-block", { text: approveLabel, onClick: () => actionForm(c, "approve", approveLabel) }));
+    const approve = el("button.btn.btn-primary.btn-block", {
+      text: approveLabel,
+      type: "button",
+      onClick: () => startApprove(c, approveLabel),
+    });
+    if (blocker) {
+      approve.disabled = true;
+      // Say why, in the button's own accessible name — a disabled control with
+      // no reason is the thing being fixed here.
+      approve.setAttribute("aria-describedby", "approve-blocked");
+      approve.title = blocker.why;
+    }
+    buttons.appendChild(approve);
+
     if (user.canReject || user.isAdmin) {
-      buttons.appendChild(el("button.btn.btn-danger.btn-block", { text: "Reject", onClick: () => actionForm(c, "reject", "Reject") }));
+      buttons.appendChild(el("button.btn.btn-danger.btn-block", { type: "button", text: "Reject", onClick: () => actionForm(c, "reject", "Reject") }));
     }
     if (c.status === "Clarification_Sought") {
-      buttons.appendChild(el("button.btn.btn-ghost.btn-block", { text: "Resolve clarification", onClick: () => actionForm(c, "resolve_clarification", "Resolve clarification") }));
+      buttons.appendChild(el("button.btn.btn-ghost.btn-block", { type: "button", text: "Resolve clarification", onClick: () => actionForm(c, "resolve_clarification", "Resolve clarification") }));
     } else {
-      buttons.appendChild(el("button.btn.btn-ghost.btn-block", { text: "Seek clarification", onClick: () => actionForm(c, "clarify", "Seek clarification") }));
+      buttons.appendChild(el("button.btn.btn-ghost.btn-block", { type: "button", text: "Seek clarification", onClick: () => actionForm(c, "clarify", "Seek clarification") }));
     }
     if (user.isAdmin) {
-      buttons.appendChild(el("button.btn.btn-ghost.btn-block", { text: "Auto-close (admin)", onClick: () => actionForm(c, "auto_close", "Auto-close") }));
+      buttons.appendChild(el("button.btn.btn-ghost.btn-block", { type: "button", text: "Auto-close (admin)", onClick: () => actionForm(c, "auto_close", "Auto-close") }));
     }
     card.appendChild(buttons);
 
-    // Stage hints for the specific portals
-    const hints = [];
-    if (["QC_Review", "Sample_Awaited"].includes(c.status) && c.sampleRequired && !sampleReceived(c)) {
-      hints.push("Sample gate: approval is blocked until a sample is marked Received.");
+    // The blocker is restated as the gate component, under the button it
+    // disables — same visual language as the Gates card, not loose red text.
+    if (blocker) {
+      const g = CCMS.ui.gate(blocker);
+      g.id = "approve-blocked";
+      card.appendChild(g);
     }
-    if (c.status === "Finance_Processing" && !c.creditNoteNumber) {
-      hints.push("Finance gate: raise the SAP credit note before approving to Closed.");
-    }
-    hints.forEach((h) => card.appendChild(el("div.action-hint", { text: "ⓘ " + h })));
 
     return card;
+  }
+
+  // ── Approve, with a confirm step where it matters ──
+  // MD approval and closing commit money and cannot be undone from the UI, so
+  // they state the consequence first. Everything else opens the normal form —
+  // a confirm on every click trains people to dismiss confirms.
+  function startApprove(c, label) {
+    const money_ = CCMS.ui.money;
+    if (c.status === "MD_Approval") {
+      return CCMS.ui.confirmConsequence({
+        title: "Approve settlement of " + money_(c.settlementValue) + "?",
+        lead: "You are approving as Managing Director. This authorises the settlement and moves " + c.complaintNo + " onward.",
+        points: [
+          "Customer: " + (c.customerName || "—") + (c.isKeyAccount ? " (key account)" : ""),
+          "Settlement: " + money_(c.settlementValue) + " against an invoice of " + money_(c.invoiceValue),
+          c.policyForcesMdApproval ? "Sales policy is in breach — this approval overrides it." : "Within sales policy.",
+        ],
+        yesLabel: "Approve settlement",
+      }, () => actionForm(c, "approve", label));
+    }
+    if (c.status === "Finance_Processing") {
+      return CCMS.ui.confirmConsequence({
+        title: "Close " + c.complaintNo + "?",
+        lead: "Approving at Finance Processing closes the complaint. Closed complaints have no further workflow actions.",
+        points: [
+          "Credit note: " + (c.creditNoteNumber || "not raised"),
+          "Settlement: " + money_(c.settlementValue),
+        ],
+        yesLabel: "Close complaint",
+      }, () => actionForm(c, "approve", label));
+    }
+    return actionForm(c, "approve", label);
   }
 
   function sampleReceived(c) {
@@ -383,6 +630,9 @@ CCMS.views.complaintDetail = async function (mount, params) {
       ]),
       actions: [
         { label: "Cancel", cls: "btn-ghost" },
+        // openModal wraps this in runAsync: the button spins, and it cannot
+        // fire twice. Double-clicking Approve used to send two POSTs and
+        // advance the workflow twice.
         { label: label, cls: action === "reject" ? "btn-danger" : "btn-primary", onClick: async (close) => {
           try {
             // Do NOT send actorId / actorRole. Who is acting (and with what
@@ -392,9 +642,9 @@ CCMS.views.complaintDetail = async function (mount, params) {
             const res = await CCMS.api.post("/api/complaints/" + encodeURIComponent(c.complaintNo) + "/action",
               { action, remarks: remarks.value || undefined });
             close();
-            toast(c.complaintNo + ": " + res.fromStatus + " → " + res.toStatus, "success");
-            reload();
-          } catch (err) { toast(err.message, "error"); }
+            toast(c.complaintNo + " moved to " + String(res.toStatus || "").replace(/_/g, " "), "success");
+            await reload();
+          } catch (err) { CCMS.ui.errorToast(err); }
         } },
       ],
     });
@@ -429,7 +679,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
             await CCMS.api.post("/api/complaints/" + encodeURIComponent(c.complaintNo) + "/samples",
               { sampleTypeId: typeSel.value, dispatchMode: mode.value, dispatchedDate: date.value, createdBy: user.userId });
             close(); toast("Sample record created.", "success"); reload();
-          } catch (err) { toast(err.message, "error"); }
+          } catch (err) { CCMS.ui.errorToast(err); }
         } },
       ],
     });
@@ -457,7 +707,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
           try {
             await CCMS.api.put("/api/complaints/" + encodeURIComponent(c.complaintNo) + "/samples/" + s.sampleId, body);
             close(); toast("Sample updated.", "success"); reload();
-          } catch (err) { toast(err.message, "error"); }
+          } catch (err) { CCMS.ui.errorToast(err); }
         } },
       ],
     });
@@ -484,7 +734,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
               documentedBy: user.userId, documentedByName: user.name,
             });
             close(); toast("CAPA documented.", "success"); reload();
-          } catch (err) { toast(err.message, "error"); }
+          } catch (err) { CCMS.ui.errorToast(err); }
         } },
       ],
     });
@@ -511,17 +761,33 @@ CCMS.views.complaintDetail = async function (mount, params) {
             await CCMS.api.post("/api/complaints/" + encodeURIComponent(c.complaintNo) + "/visits", {
               scheduledDate: date.value, assignedTo: assigned.value, visitType: type.value, scheduledBy: user.userId });
             close(); toast("Visit scheduled.", "success"); reload();
-          } catch (err) { toast(err.message, "error"); }
+          } catch (err) { CCMS.ui.errorToast(err); }
         } },
       ],
     });
   }
 
+  function removeVisit(c, v) {
+    CCMS.ui.confirm("Remove this " + (v.visitType || "").toLowerCase() + " visit? It has not taken place, so nothing is lost.", async () => {
+      try {
+        await CCMS.api.del("/api/complaints/" + encodeURIComponent(c.complaintNo) + "/visits/" + v.visitId);
+        toast("Visit removed.", "success"); reload();
+      } catch (err) { CCMS.ui.errorToast(err); }
+    }, { title: "Remove visit", yesLabel: "Remove", danger: true });
+  }
+
   function visitUpdateForm(c, v) {
-    const status = el("select.input", {}, ["Planned", "Completed"].map((x) =>
+    // Cancelled is the only way to retire a visit that should not have been
+    // scheduled — visits are audited records, so there is no delete. It was
+    // missing here while the schema, the store and the API all accepted it.
+    const status = el("select.input", {}, ["Planned", "Completed", "Cancelled"].map((x) =>
       el("option", { value: x, selected: x === v.visitStatus ? "selected" : null, text: x })));
     const findings = el("textarea.input", { rows: "2", placeholder: "Findings…", text: v.findings || "" });
-    const outcome = el("input.input", { placeholder: "Outcome", value: v.outcome || "" });
+    // Free text here could only ever match the three values the server accepts
+    // by luck; anything else was rejected. Offer exactly those, plus a blank
+    // for "not recorded yet".
+    const outcome = el("select.input", {}, ["", "Resolved On-Site", "Escalation Confirmed", "No Further Action"].map((x) =>
+      el("option", { value: x, selected: x === (v.outcome || "") ? "selected" : null, text: x || "— not recorded —" })));
     const ack = el("input.input", { placeholder: "Customer acknowledgement", value: v.customerAcknowledgement || "" });
     CCMS.ui.openModal({
       title: "Record visit outcome",
@@ -539,7 +805,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
               visitStatus: status.value, visitDate: new Date().toISOString().slice(0, 10),
               findings: findings.value, outcome: outcome.value, customerAcknowledgement: ack.value, updatedBy: user.userId });
             close(); toast("Visit updated.", "success"); reload();
-          } catch (err) { toast(err.message, "error"); }
+          } catch (err) { CCMS.ui.errorToast(err); }
         } },
       ],
     });
@@ -560,7 +826,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
             const res = await CCMS.api.post("/api/complaints/" + encodeURIComponent(c.complaintNo) + "/credit-note", {
               reason: reason.value, raisedBy: user.userId, raisedByName: user.name });
             close(); toast("Credit note " + (res.creditNote && res.creditNote.creditNoteNumber) + " raised.", "success"); reload();
-          } catch (err) { toast(err.message, "error"); }
+          } catch (err) { CCMS.ui.errorToast(err); }
         } },
       ],
     });
