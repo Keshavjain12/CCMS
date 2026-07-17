@@ -1,40 +1,17 @@
-// =========================================================================
-// SLA ENGINE  —  Orient Paper & Mill CCMS
-// Section 12.2 — SLA & Auto-Escalation Engine
-//
-// Runs as a background job (interval-based).
-// Every tick it checks all active complaints and:
-//   1. Flags complaints that have breached their per-stage SLA
-//   2. Sends escalation notifications to the stage owner's supervisor
-//   3. Records every breach in the audit log
-//   4. Auto-closes complaints stuck in Clarification_Sought beyond the
-//      customer-response window
-//
-// Configuration (all in .env):
-//   SLA_TICK_MINUTES   — how often the engine runs (default 60 mins)
-//   STAGE_SLA_DAYS     — default days per stage before escalation (default 3)
-//   SAMPLE_SLA_DAYS    — days before Sample_Awaited escalates (default 7)
-//   CLARIFY_SLA_DAYS   — days before Clarification_Sought auto-closes (default 30)
-//   SLA_ENABLED        — set false to disable the engine (default true)
-// =========================================================================
-
 require("dotenv").config();
 const { complaintStore } = require("../data/transactionalStore");
 const audit              = require("../data/auditLog");
 const notify             = require("./notificationService");
 const md                 = require("../data/masterData");
 
-// ── Config ────────────────────────────────────────────────────────────────
 const SLA_ENABLED      = process.env.SLA_ENABLED !== "false";
 const TICK_MINUTES     = parseInt(process.env.SLA_TICK_MINUTES || "60");
 const STAGE_SLA_DAYS   = parseInt(process.env.STAGE_SLA_DAYS   || "3");
 const SAMPLE_SLA_DAYS  = parseInt(process.env.SAMPLE_SLA_DAYS  || "7");
 const CLARIFY_SLA_DAYS = parseInt(process.env.CLARIFY_SLA_DAYS || "30");
 
-// ── Per-status SLA windows (days) ─────────────────────────────────────────
-// Overrides the default STAGE_SLA_DAYS for specific stages.
 const STATUS_SLA = {
-  Logged:                   1,   // Must be picked up by TS same day
+  Logged:                   1,
   TS_Review:                STAGE_SLA_DAYS,
   QC_Review:                STAGE_SLA_DAYS,
   Sample_Awaited:           SAMPLE_SLA_DAYS,
@@ -42,13 +19,11 @@ const STATUS_SLA = {
   Ops_Head_Approval:        STAGE_SLA_DAYS,
   Marketing_Review:         STAGE_SLA_DAYS,
   Marketing_Head_Approval:  STAGE_SLA_DAYS,
-  MD_Approval:              2,   // MD gets 2 days
-  Visit_Pending:            5,   // Visit team gets 5 days to complete visit
+  MD_Approval:              2,
+  Visit_Pending:            5,
   Finance_Processing:       STAGE_SLA_DAYS,
 };
 
-// ── Escalation matrix (who to notify when a stage breaches) ───────────────
-// Maps status → supervisor role name to escalate to
 const ESCALATION_MAP = {
   Logged:                   "TS Head",
   TS_Review:                "QC Manager",
@@ -63,12 +38,10 @@ const ESCALATION_MAP = {
   Finance_Processing:       "Admin",
 };
 
-// ── Terminal / side statuses (skip SLA checks) ────────────────────────────
 const SKIP_STATUSES = new Set([
   "Draft", "Closed", "Auto_Closed", "Rejected",
 ]);
 
-// ── SLA breach log (in-memory) ────────────────────────────────────────────
 const slaBreaches = [];
 
 function logBreach(entry) {
@@ -83,7 +56,6 @@ function getBreachesForComplaint(complaintNo) {
   return slaBreaches.filter((b) => b.complaintNo === complaintNo).reverse();
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────
 function daysSince(isoDate) {
   const ms = Date.now() - new Date(isoDate).getTime();
   return ms / (1000 * 60 * 60 * 24);
@@ -107,14 +79,13 @@ SLA Window    : ${slaDays} day(s)
 Days Elapsed  : ${daysElapsed.toFixed(1)} day(s)
 Overdue By    : ${(daysElapsed - slaDays).toFixed(1)} day(s)
 
-Immediate action is required. Please ensure the responsible team moves 
+Immediate action is required. Please ensure the responsible team moves
 this complaint forward or provides a valid reason for delay.
 
 Orient Paper & Mill CCMS — Automated SLA Monitor
   `.trim();
 }
 
-// ── Core SLA check function ───────────────────────────────────────────────
 async function runSlaCheck() {
   const now = new Date().toISOString();
   console.log(`\n⏱  [SLA ENGINE] Running check at ${now}`);
@@ -124,12 +95,11 @@ async function runSlaCheck() {
   let autoClosedCount = 0;
 
   for (const complaint of allComplaints) {
-    // Skip terminal/side states
+
     if (SKIP_STATUSES.has(complaint.status)) continue;
 
     const daysInStage = daysSince(complaint.updatedAt);
 
-    // ── Auto-close for long-stale Clarification_Sought ─────────────────
     if (complaint.status === "Clarification_Sought") {
       if (daysInStage >= CLARIFY_SLA_DAYS) {
         await complaintStore.update(complaint.complaintNo, { status: "Auto_Closed" });
@@ -153,7 +123,6 @@ async function runSlaCheck() {
           daysElapsed:  daysInStage,
         });
 
-        // Notify stakeholders of auto-closure
         await notify.sendNotification({
           complaint:  { ...complaint, status: "Clarification_Sought" },
           newStatus:  "Auto_Closed",
@@ -167,19 +136,11 @@ async function runSlaCheck() {
       continue;
     }
 
-    // ── Stage SLA breach check ─────────────────────────────────────────
     const slaDays = getSlaWindow(complaint.status);
-    if (daysInStage < slaDays) continue; // Within SLA — no action needed
+    if (daysInStage < slaDays) continue;
 
-    // Already escalated for this complaint at this stage? Read from the
-    // complaint, not from slaBreaches: that array is process memory, so a
-    // restart emptied it and every overdue complaint was escalated again —
-    // a fresh audit entry and a fresh email to the supervisor, hourly.
-    // The stage is part of the check: moving on and going stale again is a
-    // new breach, not the one already reported.
     if (complaint.slaBreached && complaint.slaBreachedStatus === complaint.status) continue;
 
-    // Log the breach
     logBreach({
       complaintNo:  complaint.complaintNo,
       status:       complaint.status,
@@ -189,11 +150,10 @@ async function runSlaCheck() {
       overdueBy:    daysInStage - slaDays,
     });
 
-    // Audit trail entry
     await audit.log({
       complaintNo: complaint.complaintNo,
       fromStatus:  complaint.status,
-      toStatus:    complaint.status, // status doesn't change — just flagged
+      toStatus:    complaint.status,
       action:      "SLA Breach Flagged",
       actorType:   "System",
       actorId:     "SLA_ENGINE",
@@ -201,14 +161,12 @@ async function runSlaCheck() {
       remarks:     `SLA breached: ${daysInStage.toFixed(1)} days in ${complaint.status} (limit: ${slaDays} days). Escalation notification sent.`,
     });
 
-    // Mark complaint as SLA-breached
     await complaintStore.update(complaint.complaintNo, {
       slaBreached:       true,
       slaBreachedAt:     now,
       slaBreachedStatus: complaint.status,
     });
 
-    // Find supervisor to escalate to
     const supervisorRoleName = ESCALATION_MAP[complaint.status];
     const supervisorRole = md.roles.find((r) => r.roleName === supervisorRoleName);
     const supervisors = supervisorRole
@@ -218,7 +176,6 @@ async function runSlaCheck() {
     const emailBody = buildEscalationEmail(complaint, slaDays, daysInStage,
       supervisors[0]?.name || supervisorRoleName);
 
-    // Send escalation notification
     if (supervisors.length > 0) {
       await notify.sendNotification({
         complaint,
@@ -227,8 +184,6 @@ async function runSlaCheck() {
         remarks:   emailBody,
       }).catch(() => {});
 
-      // Also log directly since the status key won't match the matrix
-      const { getAllNotifications } = notify;
       console.log(`   🟡 SLA BREACH: ${complaint.complaintNo} at ${complaint.status} — ${daysInStage.toFixed(1)}d / ${slaDays}d limit — escalating to ${supervisorRoleName}`);
     }
 
@@ -240,12 +195,10 @@ async function runSlaCheck() {
   return { checked: allComplaints.length, breaches: breachCount, autoClosed: autoClosedCount };
 }
 
-// ── Manual trigger endpoint data ──────────────────────────────────────────
 async function triggerManualCheck() {
   return runSlaCheck();
 }
 
-// ── Start the engine ──────────────────────────────────────────────────────
 let slaInterval = null;
 
 function startSlaEngine() {
@@ -260,7 +213,6 @@ function startSlaEngine() {
   console.log(`   Sample SLA   : ${SAMPLE_SLA_DAYS} days`);
   console.log(`   Clarify SLA  : ${CLARIFY_SLA_DAYS} days (auto-close)`);
 
-  // Run once immediately on startup, then on interval
   runSlaCheck().catch(console.error);
   slaInterval = setInterval(() => runSlaCheck().catch(console.error), tickMs);
 }

@@ -1,8 +1,8 @@
-// ============================================================
-// VIEW: Complaint detail  — the working surface for every portal
-// Shows the full record + the actions THIS role may perform at
-// THIS status. The backend re-authorises every call.
-// ============================================================
+
+
+
+
+
 window.CCMS = window.CCMS || {};
 CCMS.views = CCMS.views || {};
 
@@ -16,27 +16,27 @@ CCMS.views.complaintDetail = async function (mount, params) {
   ]));
   const container = el("div#detail-body");
   mount.appendChild(container);
-  // Skeleton, not a spinner on a blank page: the shape of the record is known
-  // before the data is, so hold it and let the content land into it.
+
+
   container.appendChild(detailSkeleton());
 
   let masterCache = null;
-  let lastStatus = null;   // to animate the workflow step that just advanced
+  let lastStatus = null;
 
-  // Live nodes an action can replace individually — see reload(). Declared
-  // here, above the first load(): render() populates it, so it must exist
-  // before anything renders.
+
+
+
   const parts = {};
 
   await load();
 
   async function load() {
     try {
-      // Gates come from the backend's own evaluation rather than being
-      // recomputed here. This view used to hardcode `settlementValue > 100000`
-      // and `> 50000` — copies of MD_APPROVAL_THRESHOLD and VISIT_THRESHOLD
-      // that would silently lie the moment the .env changed. Same route, no
-      // API change: it already returns exactly this.
+
+
+
+
+
       const [c, seq] = await Promise.all([
         CCMS.api.get("/api/complaints/" + encodeURIComponent(no)),
         CCMS.api.get("/api/complaints/" + encodeURIComponent(no) + "/status-sequence").catch(() => null),
@@ -48,19 +48,19 @@ CCMS.views.complaintDetail = async function (mount, params) {
     }
   }
 
-  // ── Targeted refresh ──────────────────────────────────────────────
-  // An action changes the status and what follows from it — never the invoice,
-  // the customer or the line items. Rebuilding the whole page threw away the
-  // reader's scroll position and made them watch eight cards repaint to learn
-  // that one badge changed. This swaps only what the action can affect, in
-  // place, and leaves the page where it was.
-  // (`parts` is declared at the top — render() populates it before this runs.)
+
+
+
+
+
+
+
 
   function swap(key, next) {
     const prev = parts[key];
     if (!prev || !prev.parentNode) return;
-    // Carry the section identity across the swap, or the sticky tabs stop
-    // finding their anchors after the first action.
+
+
     if (prev.id) next.id = prev.id;
     if (prev.classList.contains("detail-section")) next.classList.add("detail-section");
     prev.parentNode.replaceChild(next, prev);
@@ -76,9 +76,9 @@ CCMS.views.complaintDetail = async function (mount, params) {
       ]);
       const gates = (seq && seq.gates) || null;
 
-      // If the whole shape of the page changes — a terminal status drops the
-      // action panel, a new section appears — a full render is the honest
-      // thing. Otherwise swap the affected parts.
+
+
+
       const canAct = CCMS.roles.canActOnStatus(user.roleId, c.status, c._priorStatus);
       const terminal = ["Closed", "Auto_Closed", "Rejected"].includes(c.status);
 
@@ -93,7 +93,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
       swap("audit", auditCard(c));
       lastStatus = c.status;
     } catch (err) {
-      // A failed refresh must not leave a stale page pretending to be current.
+
       CCMS.ui.clear(container);
       container.appendChild(CCMS.ui.errorBox(err));
     }
@@ -118,7 +118,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     const canAct = CCMS.roles.canActOnStatus(user.roleId, c.status, c._priorStatus);
     const terminal = ["Closed", "Auto_Closed", "Rejected"].includes(c.status);
 
-    // ── Header card ──
+
     container.appendChild(el("div.card.detail-head", {}, [
       el("div.detail-title", {}, [
         el("div", {}, [
@@ -149,12 +149,12 @@ CCMS.views.complaintDetail = async function (mount, params) {
         : null,
     ]));
 
-    // ── Workflow progress ──
+
     container.appendChild((parts.workflow = workflowStrip(c, null)));
 
-    // ── Section tabs ──
-    // The page was eight stacked cards and one long scroll; on a phone the
-    // audit trail was several screens below the action you came to take.
+
+
+
     const sections = [];
     const left = el("div.detail-col");
     const right = el("div.detail-col.detail-side");
@@ -166,8 +166,8 @@ CCMS.views.complaintDetail = async function (mount, params) {
       return node;
     }
 
-    // LEFT: line items, samples, capa, visits, credit notes
-    // Each node is kept in `parts` so an action can replace just that card.
+
+
     left.appendChild(section("items", "Line items", (c.lineItems || []).length, lineItemsCard(c)));
     if ((c.samples || []).length || isQC()) left.appendChild(section("samples", "Samples", (c.samples || []).length, (parts.samples = samplesCard(c))));
     if ((c.capas || []).length || isOps()) left.appendChild(section("capa", "CAPA", (c.capas || []).length, (parts.capa = capaCard(c))));
@@ -175,7 +175,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     if ((c.creditNotes || []).length || isFinance()) left.appendChild(section("credit", "Credit note", (c.creditNotes || []).length, (parts.credit = creditNoteCard(c))));
     left.appendChild(section("audit", "Audit", null, (parts.audit = auditCard(c))));
 
-    // RIGHT: action panel + gates
+
     right.appendChild((parts.actions = actionPanel(c, canAct, terminal, gates)));
     right.appendChild((parts.gates = gatesCard(c, gates)));
     if ((c.attachments || []).length) right.appendChild(attachmentsCard(c));
@@ -186,7 +186,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     lastStatus = c.status;
   }
 
-  // ── Sticky section tabs ──
+
   function subnav(sections) {
     const nav = el("nav.subnav", { "aria-label": "Complaint sections" });
     sections.forEach((s, i) => {
@@ -211,7 +211,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
-  // ── role predicates ──
+
   function isQC()      { return ["R000", "R003", "R004"].includes(user.roleId); }
   function isOps()     { return ["R000", "R005", "R006"].includes(user.roleId); }
   function isVisitRole(){ return ["R000", "R010", "R011"].includes(user.roleId); }
@@ -224,11 +224,11 @@ CCMS.views.complaintDetail = async function (mount, params) {
     ]);
   }
 
-  // ── Workflow strip ──
-  // `previous` is the status this strip last showed. The step it names is the
-  // one that just completed, so it gets a one-shot animation — the status
-  // change is then something you see happen rather than something you notice
-  // afterwards by comparing.
+
+
+
+
+
   function workflowStrip(c, previous) {
     const seq = (c.statusSequence || []).length ? c.statusSequence : defaultSeq();
     const curIdx = seq.indexOf(c.status);
@@ -237,7 +237,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     const track = el("div.wf-track");
     seq.forEach((st, i) => {
       const state = i < curIdx ? "done" : i === curIdx ? "current" : "todo";
-      // Only animate a step that genuinely advanced (moved forward past it).
+
       const justDone = i === movedFrom && movedFrom > -1 && movedFrom < curIdx;
       track.appendChild(el("div.wf-step." + state + (justDone ? ".just-done" : ""), {
         "aria-current": state === "current" ? "step" : null,
@@ -260,7 +260,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     }
   }
 
-  // ── Line items ──
+
   function lineItemsCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [el("h3", { text: "Line items (" + (c.lineItems || []).length + ")" })])]);
     if (!(c.lineItems || []).length) { card.appendChild(CCMS.ui.empty("No line items.")); return card; }
@@ -277,9 +277,9 @@ CCMS.views.complaintDetail = async function (mount, params) {
         el("td.num", { text: (li.invoiceQty != null ? li.invoiceQty : "—") + " " + (li.uom || "") }),
         el("td.num", { text: String(li.defectiveQty != null ? li.defectiveQty : "—") }),
         el("td.num", { text: money(li.unitPrice) }),
-        // The server sends defectiveValue; this used to recompute unitPrice ×
-        // defectiveQty in the browser — a second implementation of a money
-        // calculation that could disagree with the figure the workflow gates on.
+
+
+
         el("td.num", {}, [el("strong", { text: money(li.defectiveValue != null ? li.defectiveValue : (li.unitPrice || 0) * (li.defectiveQty || 0)) })]),
         el("td", {}, [li.sampleRequired ? pill("Required", "pill-warn") : pill("No", "pill-ok")]),
       ]));
@@ -289,7 +289,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-  // ── Samples (QC portal) ──
+
   function samplesCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [
       el("h3", { text: "Physical samples (QC)" }),
@@ -313,7 +313,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-  // ── CAPA (Operations portal) ──
+
   function capaCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [
       el("h3", { text: "CAPA (Operations)" }),
@@ -332,7 +332,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-  // ── Visits (Sales/Finance portal) ──
+
   function visitsCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [
       el("h3", { text: "Customer visits" }),
@@ -351,8 +351,8 @@ CCMS.views.complaintDetail = async function (mount, params) {
         isVisitRole() && v.visitStatus !== "Completed" && !terminalStatus(c)
           ? el("div.sub-actions", {}, [
               el("button.btn.btn-xs.btn-ghost", { text: "Record outcome", onClick: () => visitUpdateForm(c, v) }),
-              // Only offered while the visit holds no recorded work — the same
-              // rule the server enforces. Once it has, Cancelled is the way out.
+
+
               !v.visitDate && !v.findings && !v.outcome && !v.customerAcknowledgement
                 ? el("button.btn.btn-xs.btn-ghost", { text: "✕ Remove", title: "Remove this visit — scheduled by mistake", onClick: () => removeVisit(c, v) })
                 : null,
@@ -363,7 +363,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-  // ── Credit notes (Finance portal) ──
+
   function creditNoteCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [
       el("h3", { text: "Credit note (SAP)" }),
@@ -385,7 +385,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-  // ── Attachments ──
+
   function attachmentsCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [el("h3", { text: "Attachments" })])]);
     (c.attachments || []).forEach((a) => {
@@ -397,13 +397,13 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-  // ── Audit trail ──
+
   function auditCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [
       el("h3", { text: "Audit trail" }),
-      // The per-complaint trail below is fine for anyone who can view this
-      // complaint, but the cross-link to the GLOBAL log is only for the
-      // privileged roles that are actually allowed to open it.
+
+
+
       CCMS.roles.canViewGlobal(user.roleId)
         ? el("a.link", { href: "#/audit", text: "Full log →" })
         : null,
@@ -431,15 +431,15 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-  // ── Gates ──
-  // One description of every gate, used by both this card and the action
-  // panel. There were two: a "● Yes / ○ No" list here, and separate hint text
-  // under the buttons saying the same thing in other words — so they could
-  // disagree, and neither told you what to do about it.
-  //
-  // `gates` is the backend's own evaluation (GET …/status-sequence). When it
-  // is unavailable the flags on the complaint still describe applicability;
-  // only the thresholds — which belong to the server — are never guessed.
+
+
+
+
+
+
+
+
+
   function gateList(c, gates) {
     const g = gates || {};
     const sampleRequired = g.sampleRequired != null ? g.sampleRequired : !!c.sampleRequired;
@@ -496,7 +496,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return list;
   }
 
-  /** Has the complaint moved past `stage` in its own sequence? */
+
   function passedStage(c, stage) {
     const seq = c.statusSequence || [];
     const at = seq.indexOf(c.status), of = seq.indexOf(stage);
@@ -511,7 +511,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-  // ── Action panel (universal workflow actions) ──
+
   function actionPanel(c, canAct, terminal, gates) {
     const card = el("div.card.action-panel", {}, [el("div.card-head", {}, [el("h3", { text: "Actions" })])]);
 
@@ -529,9 +529,9 @@ CCMS.views.complaintDetail = async function (mount, params) {
 
     card.appendChild(el("p.muted.sm", { text: "You are authorised to act at " + c.status.replace(/_/g, " ") + "." }));
 
-    // A blocking gate is the reason Approve cannot proceed. Previously the
-    // button stayed enabled, the server refused, and the user learned why from
-    // a red toast; the explanation sat below the button as advisory text.
+
+
+
     const blocker = gateList(c, gates).find((g) => g.state === "blocked");
 
     const buttons = el("div.action-buttons");
@@ -543,8 +543,8 @@ CCMS.views.complaintDetail = async function (mount, params) {
     });
     if (blocker) {
       approve.disabled = true;
-      // Say why, in the button's own accessible name — a disabled control with
-      // no reason is the thing being fixed here.
+
+
       approve.setAttribute("aria-describedby", "approve-blocked");
       approve.title = blocker.why;
     }
@@ -563,8 +563,8 @@ CCMS.views.complaintDetail = async function (mount, params) {
     }
     card.appendChild(buttons);
 
-    // The blocker is restated as the gate component, under the button it
-    // disables — same visual language as the Gates card, not loose red text.
+
+
     if (blocker) {
       const g = CCMS.ui.gate(blocker);
       g.id = "approve-blocked";
@@ -574,10 +574,10 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-  // ── Approve, with a confirm step where it matters ──
-  // MD approval and closing commit money and cannot be undone from the UI, so
-  // they state the consequence first. Everything else opens the normal form —
-  // a confirm on every click trains people to dismiss confirms.
+
+
+
+
   function startApprove(c, label) {
     const money_ = CCMS.ui.money;
     if (c.status === "MD_Approval") {
@@ -616,9 +616,9 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return el("div.kv", {}, [el("span.kv-label", { text: label }), el("span.kv-value", { text: value || "—" })]);
   }
 
-  // =====================================================================
-  // FORMS (modals) — each posts to the backend then reloads the view
-  // =====================================================================
+
+
+
 
   function actionForm(c, action, label) {
     const remarks = el("textarea.input", { rows: "3", placeholder: "Remarks (optional)…" });
@@ -630,15 +630,15 @@ CCMS.views.complaintDetail = async function (mount, params) {
       ]),
       actions: [
         { label: "Cancel", cls: "btn-ghost" },
-        // openModal wraps this in runAsync: the button spins, and it cannot
-        // fire twice. Double-clicking Approve used to send two POSTs and
-        // advance the workflow twice.
+
+
+
         { label: label, cls: action === "reject" ? "btn-danger" : "btn-primary", onClick: async (close) => {
           try {
-            // Do NOT send actorId / actorRole. Who is acting (and with what
-            // role) must be derived by the backend from the signed JWT — a
-            // client-supplied identity is trivially spoofable (e.g. changing
-            // "QC Analyst" to "Managing Director" in the request body).
+
+
+
+
             const res = await CCMS.api.post("/api/complaints/" + encodeURIComponent(c.complaintNo) + "/action",
               { action, remarks: remarks.value || undefined });
             close();
@@ -777,15 +777,15 @@ CCMS.views.complaintDetail = async function (mount, params) {
   }
 
   function visitUpdateForm(c, v) {
-    // Cancelled is the only way to retire a visit that should not have been
-    // scheduled — visits are audited records, so there is no delete. It was
-    // missing here while the schema, the store and the API all accepted it.
+
+
+
     const status = el("select.input", {}, ["Planned", "Completed", "Cancelled"].map((x) =>
       el("option", { value: x, selected: x === v.visitStatus ? "selected" : null, text: x })));
     const findings = el("textarea.input", { rows: "2", placeholder: "Findings…", text: v.findings || "" });
-    // Free text here could only ever match the three values the server accepts
-    // by luck; anything else was rejected. Offer exactly those, plus a blank
-    // for "not recorded yet".
+
+
+
     const outcome = el("select.input", {}, ["", "Resolved On-Site", "Escalation Confirmed", "No Further Action"].map((x) =>
       el("option", { value: x, selected: x === (v.outcome || "") ? "selected" : null, text: x || "— not recorded —" })));
     const ack = el("input.input", { placeholder: "Customer acknowledgement", value: v.customerAcknowledgement || "" });

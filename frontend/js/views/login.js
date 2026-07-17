@@ -1,6 +1,3 @@
-// ============================================================
-// VIEW: Login  (JWT authentication entry point)
-// ============================================================
 window.CCMS = window.CCMS || {};
 CCMS.views = CCMS.views || {};
 
@@ -8,10 +5,6 @@ CCMS.views.login = function (mount) {
   const { el } = CCMS.ui;
   const cfg = CCMS.config;
 
-  // Demo quick-fill accounts are NEVER hardcoded here. They are supplied at
-  // runtime by the git-ignored env/config.js (CCMS.config.DEMO_ACCOUNTS) so the
-  // shipped app source contains no cleartext credentials. In production
-  // DEMO_ACCOUNTS is empty and SHOW_DEMO_ACCOUNTS is false, so nothing renders.
   const DEMO = Array.isArray(cfg.DEMO_ACCOUNTS) ? cfg.DEMO_ACCOUNTS : [];
 
   const emailInput = el("input.input", { type: "email", placeholder: "you@orientpaper.com", autocomplete: "username" });
@@ -79,8 +72,6 @@ CCMS.views.login = function (mount) {
     form,
   ]);
 
-  // Only render when explicitly enabled AND accounts were actually provided by
-  // the (git-ignored) env config. Ships as a no-op in production.
   if (cfg.SHOW_DEMO_ACCOUNTS && DEMO.length) {
     card.appendChild(el("div.demo-block", {}, [
       el("div.demo-head", { text: "Demo accounts — click to fill" }),

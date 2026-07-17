@@ -1,24 +1,24 @@
-// =========================================================================
-// ROLLOUT CONFIG  —  Orient Paper & Mill CCMS
-// Section 12.8 — Phased Rollout Plan
-//
-// Controls which business lines and regions are LIVE vs PILOT vs BLOCKED.
-// Every complaint creation is checked against this gate before proceeding.
-//
-// Phases:
-//   Phase 1 (Pilot)  — Paper business line, North India region only
-//   Phase 2          — Paper all regions + Chemical North India
-//   Phase 3 (Full)   — Paper + Chemical, all regions
-//
-// Current phase is set by ROLLOUT_PHASE in .env (1, 2, or 3).
-// Individual overrides can be set per business line/region in .env too.
-// =========================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 require("dotenv").config();
 
 const ROLLOUT_PHASE = parseInt(process.env.ROLLOUT_PHASE || "1");
 
-// ── Phase definitions ─────────────────────────────────────────────────────
+
 const PHASE_CONFIG = {
   1: {
     label: "Phase 1 — Pilot (Paper / North India)",
@@ -32,7 +32,7 @@ const PHASE_CONFIG = {
       notifications:    true,
       rbac:             true,
       kpiDashboard:     true,
-      archival:         false,  // Not yet in pilot
+      archival:         false,
       repeatDetection:  true,
     },
   },
@@ -56,8 +56,8 @@ const PHASE_CONFIG = {
     label: "Phase 3 — Full Rollout (All Business Lines & Regions)",
     description: "Full production rollout. All business lines and regions enabled. Live SAP connection recommended.",
     allowedBusinessLines: ["Paper", "Chemical"],
-    allowedRegions:       "*",  // All regions
-    maxConcurrentComplaints: null,  // No limit
+    allowedRegions:       "*",
+    maxConcurrentComplaints: null,
     sapMode: "live",
     features: {
       slaEngine:        true,
@@ -72,12 +72,12 @@ const PHASE_CONFIG = {
 
 const currentPhase = PHASE_CONFIG[ROLLOUT_PHASE] || PHASE_CONFIG[1];
 
-// ── Region normalisation ──────────────────────────────────────────────────
-// Region names reach us from SAP customer master, where the wording is not
-// controlled: "Northern India", "North India" and "North" all name the same
-// pilot region. Comparing the raw strings meant the gate matched on spelling
-// rather than meaning — every real customer fell outside every phase. Reduce
-// both sides to a bare direction before comparing.
+
+
+
+
+
+
 const REGION_ALIASES = { northern: "north", southern: "south", eastern: "east", western: "west" };
 
 function normalizeRegion(region) {
@@ -86,12 +86,12 @@ function normalizeRegion(region) {
   return REGION_ALIASES[word] || word || null;
 }
 
-// ── Gate checker ──────────────────────────────────────────────────────────
+
 function checkRolloutGate(businessLine, region) {
-  // Phase 3 = no restrictions
+
   if (ROLLOUT_PHASE >= 3) return { allowed: true, phase: ROLLOUT_PHASE };
 
-  // Business line check
+
   if (!currentPhase.allowedBusinessLines.includes(businessLine)) {
     return {
       allowed: false,
@@ -101,7 +101,7 @@ function checkRolloutGate(businessLine, region) {
     };
   }
 
-  // Region check (if provided)
+
   if (region && currentPhase.allowedRegions !== "*") {
     const wanted = normalizeRegion(region);
     const regionAllowed = currentPhase.allowedRegions.some(
@@ -120,12 +120,12 @@ function checkRolloutGate(businessLine, region) {
   return { allowed: true, phase: ROLLOUT_PHASE, label: currentPhase.label };
 }
 
-// ── Feature flag checker ──────────────────────────────────────────────────
+
 function isFeatureEnabled(featureName) {
   return currentPhase.features[featureName] === true;
 }
 
-// ── Rollout status (for GET /api/rollout) ────────────────────────────────
+
 function getRolloutStatus() {
   return {
     currentPhase:  ROLLOUT_PHASE,

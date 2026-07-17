@@ -1,7 +1,7 @@
-// ============================================================
-// VIEW: Dashboard  (role-aware landing)
-// KPI tiles + "My action queue" (complaints this role can act on)
-// ============================================================
+
+
+
+
 window.CCMS = window.CCMS || {};
 CCMS.views = CCMS.views || {};
 
@@ -23,8 +23,8 @@ CCMS.views.dashboard = async function (mount) {
   mount.appendChild(kpiRow);
   mount.appendChild(el("div.grid-2", {}, [queueCard, pipeCard]));
 
-  // Skeletons, not a spinner on a blank page: the tiles hold their shape while
-  // loading, so nothing jumps when the numbers land.
+
+
   CCMS.ui.clear(kpiRow);
   kpiRow.appendChild(CCMS.ui.el("div.skel.skel-tile"));
   kpiRow.appendChild(CCMS.ui.el("div.skel.skel-tile"));
@@ -43,7 +43,7 @@ CCMS.views.dashboard = async function (mount) {
       CCMS.api.get("/api/complaints"),
     ]);
 
-    // ── KPI tiles ──
+
     CCMS.ui.clear(kpiRow);
     const s = (kpi && kpi.summary) || {};
     const all = list.data || [];
@@ -61,7 +61,7 @@ CCMS.views.dashboard = async function (mount) {
       { label: "Settlement (total)", value: money(sumAllSettlement(all, kpi)), small: true },
     ]);
 
-    // ── My action queue ──
+
     CCMS.ui.clear(queueCard);
     queueCard.appendChild(el("div.card-head", {}, [
       el("h3", { text: "My action queue" }),
@@ -88,7 +88,7 @@ CCMS.views.dashboard = async function (mount) {
       queueCard.appendChild(t);
     }
 
-    // ── Pipeline by status ──
+
     CCMS.ui.clear(pipeCard);
     pipeCard.appendChild(el("div.card-head", {}, [el("h3", { text: "Pipeline by status" })]));
     const byStatus = groupBy(all, "status");
@@ -110,9 +110,10 @@ CCMS.views.dashboard = async function (mount) {
     }
 
     if (kpi && kpi.sapHealth) {
+      const sapMode = kpi.sapHealth.mode || "unknown";
       pipeCard.appendChild(el("div.sap-health", {}, [
-        el("span.dot." + (String(kpi.sapHealth.status || "").toLowerCase().includes("mock") ? "warn" : "ok")),
-        el("small", { text: "SAP: " + (kpi.sapHealth.mode || kpi.sapHealth.status || "unknown") }),
+        el("span.dot." + (sapMode.toLowerCase().includes("mock") ? "warn" : "ok")),
+        el("small", { text: "SAP: " + sapMode }),
       ]));
     }
   } catch (err) {
@@ -120,7 +121,7 @@ CCMS.views.dashboard = async function (mount) {
     mount.appendChild(CCMS.ui.errorBox(err));
   }
 
-  // ── helpers ──
+
   function tiles(host, defs) {
     defs.forEach((d) => {
       const value = el("div.kpi-value" + (d.small ? ".sm" : ""), { text: String(d.value) });
@@ -133,12 +134,7 @@ CCMS.views.dashboard = async function (mount) {
     });
   }
 
-  /**
-   * Count a plain number up on load. Skipped for anything that is not purely
-   * numeric — money tiles arrive pre-formatted (₹1,20,500) and animating them
-   * would mean re-formatting on every frame. Skipped entirely under
-   * prefers-reduced-motion, where the final value is simply shown.
-   */
+
   function countUp(node, raw) {
     const target = typeof raw === "number" ? raw : NaN;
     if (!Number.isFinite(target) || target <= 0) return;
@@ -147,11 +143,11 @@ CCMS.views.dashboard = async function (mount) {
     const start = performance.now();
     function frame(now) {
       const t = Math.min(1, (now - start) / DURATION);
-      // ease-out: fast first, settling — reads as "counting", not "ticking".
+
       const eased = 1 - Math.pow(1 - t, 3);
       node.textContent = String(Math.round(target * eased));
       if (t < 1) requestAnimationFrame(frame);
-      else node.textContent = String(target);   // land exactly on the real value
+      else node.textContent = String(target);
     }
     requestAnimationFrame(frame);
   }
@@ -163,8 +159,8 @@ CCMS.views.dashboard = async function (mount) {
       .reduce((s, c) => s + Number(c.settlementValue || 0), 0);
   }
 
-  // Total settlement across ALL complaints (open + closed). Prefer the
-  // authoritative backend figure; fall back to summing the loaded list.
+
+
   function sumAllSettlement(arr, kpi) {
     if (kpi && kpi.settlement && kpi.settlement.totalValue != null) return kpi.settlement.totalValue;
     return arr.reduce((s, c) => s + Number(c.settlementValue || 0), 0);

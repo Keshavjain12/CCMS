@@ -1,15 +1,7 @@
-// ============================================================
-// ROLES & RBAC  (mirror of backend src/middleware/auth.js)
-// ------------------------------------------------------------
-// The backend is the source of truth and re-checks everything.
-// This mirror only decides which portal/nav/actions to SHOW so
-// the UI never offers a button the server would reject with 403.
-// ============================================================
 window.CCMS = window.CCMS || {};
 
 CCMS.roles = (function () {
 
-  // ── Per-status → roles allowed to /action (backend STATUS_ALLOWED_ROLES)
   const STATUS_ALLOWED_ROLES = {
     Logged:                  ["R001", "R002"],
     TS_Review:               ["R002"],
@@ -24,7 +16,6 @@ CCMS.roles = (function () {
     Finance_Processing:      ["R010"],
   };
 
-  // ── Endpoint-category → allowed roles (backend ROUTE_PERMISSIONS)
   const CAN = {
     createComplaint: ["R000", "R001", "R002", "R011"],
     manageSamples:   ["R000", "R003", "R004"],
@@ -34,20 +25,11 @@ CCMS.roles = (function () {
     masterDataWrite: ["R000"],
   };
 
-  // ── Roles allowed to see the COMPANY-WIDE views ───────────────────
-  // Notifications, SLA breaches and the global audit log expose data
-  // across every department (MD approvals, settlement values, all queued
-  // emails). They must NOT be offered to every authenticated role. This
-  // list restricts the nav + client guards to privileged roles; the
-  // backend must ALSO enforce it (return 403 for everyone else).
-  // Adjust here to add e.g. a dedicated Auditor role.
-  //   R000 = Admin, R009 = Managing Director.
   const GLOBAL_VIEW_ROLES = ["R000", "R009"];
   function canViewGlobal(roleId) {
     return GLOBAL_VIEW_ROLES.indexOf(roleId) !== -1;
   }
 
-  // ── Portal identity per role (drives branding + landing) ──────────
   const PORTALS = {
     R000: { portal: "Admin Console",         dept: "System",              accent: "#0355a6", icon: "⚙" },
     R001: { portal: "Technical Services",    dept: "TS",                  accent: "#0ea5e9", icon: "🔧" },
@@ -63,9 +45,6 @@ CCMS.roles = (function () {
     R011: { portal: "Sales / KAM",           dept: "Sales",               accent: "#2563eb", icon: "🤝" },
   };
 
-  // ── Which nav sections each role sees ─────────────────────────────
-  // Every authenticated role gets: dashboard, complaints, notifications, audit.
-  // Extra sections are added per role below.
   function navFor(roleId) {
     const base = [
       { id: "dashboard",     label: "Dashboard",     icon: "▤", route: "#/dashboard" },
@@ -76,9 +55,6 @@ CCMS.roles = (function () {
       base.push({ id: "create", label: "New Complaint", icon: "＋", route: "#/complaints/new" });
     }
 
-    // Company-wide views are only offered to privileged roles so the UI
-    // never actively invites a QC Analyst or Sales Officer into the global
-    // audit log / SLA breaches / all-department notifications.
     if (canViewGlobal(roleId)) {
       base.push(
         { id: "notifications", label: "Notifications",  icon: "✉", route: "#/notifications" },
@@ -103,13 +79,11 @@ CCMS.roles = (function () {
   }
 
   function can(capability, roleId) {
-    if (roleId === "R000") return true; // admin bypass
+    if (roleId === "R000") return true;
     const list = CAN[capability];
     return !!list && list.indexOf(roleId) !== -1;
   }
 
-  // Can this role act on a complaint currently at `status`?
-  // Handles the Clarification_Sought side-state the way the backend does.
   function canActOnStatus(roleId, status, priorStatus) {
     if (roleId === "R000") return true;
     let effective = status;

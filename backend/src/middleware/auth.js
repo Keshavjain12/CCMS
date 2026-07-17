@@ -1,31 +1,32 @@
-// =========================================================================
-// AUTH MIDDLEWARE  —  Orient Paper & Mill CCMS
-// Section 12.3 — Role-Based Access Control (RBAC)
-//
-// Every protected route gets req.user = { userId, email, roleId, roleName,
-// department, canApprove, canForward, canReject, level }
-//
-// RBAC Matrix (who can do what at which status):
-// ─────────────────────────────────────────────
-// Status           → Allowed roleIds to approve/forward from this stage
-// ─────────────────────────────────────────────
-// Logged           → R001, R002 (TS Officer / TS Head)
-// TS_Review        → R002      (TS Head — canApprove)
-// QC_Review        → R003, R004(QC Analyst forward, QC Manager approve)
-// Sample_Awaited   → R003, R004(QC updates sample; QC Manager moves on)
-// CAPA_Pending     → R005, R006(Ops Analyst documents CAPA, Ops Head approves)
-// Ops_Head_Approval→ R006      (Operations Head)
-// Marketing_Review → R007, R008(Product Manager forward, Mktg Head approve)
-// Marketing_Head_Approval → R008 (Marketing Head)
-// MD_Approval      → R009      (Managing Director)
-// Visit_Pending    → R010, R011(Sales/KAM logs visit; Finance forwards)
-// Finance_Processing→ R010     (Finance Officer — raises Credit Note)
-// Closed           → read-only (no transitions from Closed)
-// ─────────────────────────────────────────────
-// Admin (R000)     → can do everything, bypass all role checks
-// =========================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 require("dotenv").config();
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const md  = require("../data/masterData");
 
@@ -33,10 +34,10 @@ const DEV_FALLBACK_SECRET = "opm-ccms-dev-secret-change-in-prod";
 const JWT_SECRET  = process.env.JWT_SECRET  || DEV_FALLBACK_SECRET;
 const JWT_EXPIRES = process.env.JWT_EXPIRES || "8h";
 
-// ── JWT secret hardening ──────────────────────────────────────────────────
-// A weak or default signing secret means anyone can forge a valid token for
-// any user/role. Refuse to boot in production with such a secret; warn loudly
-// in development so it's never mistaken for production-ready.
+
+
+
+
 (function guardJwtSecret() {
   const s = process.env.JWT_SECRET || "";
   const isWeak =
@@ -59,8 +60,40 @@ const JWT_EXPIRES = process.env.JWT_EXPIRES || "8h";
   }
 })();
 
-// ── Per-status allowed roles ──────────────────────────────────────────────
-// Maps complaint status → which roles are allowed to call /action on it.
+
+
+
+
+
+
+
+
+
+const revokedJtis = new Map();
+
+function revokeToken(token) {
+  if (!token) return;
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.jti) revokedJtis.set(decoded.jti, (decoded.exp || 0) * 1000 || Date.now());
+  } catch (_) {  }
+}
+
+function isTokenRevoked(decoded) {
+  const exp = decoded && decoded.jti != null ? revokedJtis.get(decoded.jti) : undefined;
+  if (exp == null) return false;
+  if (Date.now() >= exp) { revokedJtis.delete(decoded.jti); return false; }
+  return true;
+}
+
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [jti, exp] of revokedJtis) if (now >= exp) revokedJtis.delete(jti);
+}, 60 * 60 * 1000).unref();
+
+
+
 const STATUS_ALLOWED_ROLES = {
   Logged:                    ["R001", "R002"],
   TS_Review:                 ["R002"],
@@ -75,34 +108,34 @@ const STATUS_ALLOWED_ROLES = {
   Finance_Processing:        ["R010"],
 };
 
-// ── Route-level permission map ─────────────────────────────────────────────
-// Maps endpoint category → minimum required capabilities or allowed roles.
+
+
 const ROUTE_PERMISSIONS = {
-  // Complaint creation — Sales/KAM (R011), TS (R001/R002), or Admin
+
   createComplaint:    ["R001", "R002", "R011"],
-  // Sample management — QC only
+
   manageSamples:      ["R003", "R004"],
-  // CAPA — Operations only
+
   manageCapa:         ["R005", "R006"],
-  // Visit scheduling — Sales/KAM + Finance
+
   manageVisits:       ["R010", "R011"],
-  // Credit note — Finance only
+
   creditNote:         ["R010"],
-  // Master data writes — Admin only
+
   masterDataWrite:    ["R000"],
-  // Read-only — any authenticated user
+
   readOnly:           "*",
 };
 
-// ── Token helpers ─────────────────────────────────────────────────────────
-// ── Auth cookie ───────────────────────────────────────────────────────────
-// The token lives in an httpOnly cookie rather than being handed to page
-// JavaScript, so script injected into the page cannot read or steal it.
-//   httpOnly — invisible to document.cookie / any JS
-//   sameSite:'lax' — not attached to cross-site requests, which blocks CSRF
-//     while still working across localhost ports (same site, different origin)
-//   secure — HTTPS-only. Enabled in production; off in dev so plain-http
-//     localhost still works.
+
+
+
+
+
+
+
+
+
 const AUTH_COOKIE = "ccms_token";
 
 function cookieOptions() {
@@ -124,18 +157,20 @@ function signToken(user) {
       roleId:     user.roleId,
       name:       user.name,
       department: user.department,
+
+      jti:        crypto.randomUUID(),
     },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES }
   );
 }
 
-// ── Core verify middleware ────────────────────────────────────────────────
-// Token source, in order:
-//   1. The httpOnly cookie set at login. Browsers send it automatically and
-//      page JavaScript cannot read it, so an XSS flaw can't exfiltrate it.
-//   2. An Authorization: Bearer header — kept for non-browser clients
-//      (Postman, curl, scripts) that don't carry a cookie jar.
+
+
+
+
+
+
 function authenticate(req, res, next) {
   const header = req.headers["authorization"] || "";
   const token =
@@ -151,7 +186,13 @@ function authenticate(req, res, next) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    // Attach full role details from live master data
+
+
+    if (isTokenRevoked(decoded)) {
+      return res.status(401).json({ error: "Session ended. Please login again." });
+    }
+
+
     const role = md.findRole(decoded.roleId) || {};
     req.user = {
       ...decoded,
@@ -168,11 +209,11 @@ function authenticate(req, res, next) {
   }
 }
 
-// ── Role-gate middleware factory ───────────────────────────────────────────
-// Usage: router.post("/credit-note", authenticate, requireRoles(["R010"]), handler)
+
+
 function requireRoles(allowedRoles) {
   return (req, res, next) => {
-    if (req.user.isAdmin) return next(); // Admin bypasses all role gates
+    if (req.user.isAdmin) return next();
     if (allowedRoles.includes(req.user.roleId)) return next();
     return res.status(403).json({
       error: `Access denied. This action requires one of: ${allowedRoles.join(", ")}. Your role: ${req.user.roleId} (${req.user.roleName}).`,
@@ -182,20 +223,20 @@ function requireRoles(allowedRoles) {
   };
 }
 
-// ── Status-action gate ────────────────────────────────────────────────────
-// Call this INSIDE a route handler after fetching the complaint.
-// Returns { allowed: true } or { allowed: false, reason }
+
+
+
 function canActOnStatus(user, complaintStatus, action, priorStatus) {
   if (user.isAdmin) return { allowed: true };
 
-  // Side-state: a complaint parked in Clarification_Sought is resolved by
-  // whoever was authorised to act at the stage the clarification was raised
-  // from. Without this, no non-admin role could ever resolve a clarification.
+
+
+
   let effectiveStatus = complaintStatus;
   if (complaintStatus === "Clarification_Sought") {
     effectiveStatus = priorStatus || null;
     if (!effectiveStatus) {
-      // No recorded prior stage — fall back to any staff able to move work on.
+
       if (user.canForward || user.canApprove) return { allowed: true };
       return { allowed: false, reason: "Only staff with forward permission can resolve a clarification." };
     }
@@ -211,7 +252,7 @@ function canActOnStatus(user, complaintStatus, action, priorStatus) {
     };
   }
 
-  // Action-level check using role flags
+
   if (action === "approve") {
     if (!user.canApprove && !user.canForward) {
       return { allowed: false, reason: `Your role (${user.roleName}) does not have approve/forward permission.` };
@@ -231,6 +272,7 @@ module.exports = {
   authenticate,
   requireRoles,
   canActOnStatus,
+  revokeToken,
   ROUTE_PERMISSIONS,
   STATUS_ALLOWED_ROLES,
   JWT_SECRET,

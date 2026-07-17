@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Uploaded attachment files (metadata lives in the DB; bytes are local/disk)
+backend/uploads/
+uploads/
+
 # Secrets & active local config — never commit (keep the .example templates instead)
 .env
 frontend/env/config.js

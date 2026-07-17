@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "CCMS \u2014 Orient Paper & Mill (v2.0)",
-    "description": "Complaint Transaction & SAP Push \u2014 full backend. Run 'Health Check' first to confirm the server is up, then run the 'Full Complaint Lifecycle' folder top-to-bottom (or use Collection Runner) \u2014 each request auto-saves complaintNo/sampleId/visitId into collection variables so you don't have to copy-paste anything.",
+    "name": "CCMS — Orient Paper & Mill (v2.0)",
+    "description": "Complaint Transaction & SAP Push — full backend. AUTH: login sets an httpOnly `ccms_token` cookie; Postman's cookie jar sends it automatically on every subsequent request to the same host, so no Bearer token is needed. Run a Login request first, then the 'Full Complaint Lifecycle' folder top-to-bottom (each request auto-saves complaintNo/sampleId/visitId). Note: the negative 'Access without token (expect 401)' check only holds before any login — once the cookie jar has a session it is sent to every request.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -24,26 +24,22 @@
     {
       "key": "invoiceNumber",
       "value": "90009999"
-    },
-    {
-      "key": "token",
-      "value": ""
     }
   ],
   "item": [
     {
-      "name": "0. Authentication (RBAC \u2014 Section 12.3)",
+      "name": "0. Authentication (RBAC — Section 12.3)",
       "item": [
         {
-          "name": "Login \u2014 TS Head (Kiran Joshi)",
+          "name": "Login — TS Head (Kiran Joshi)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
                   "const d = pm.response.json();",
-                  "if (d.token) { pm.collectionVariables.set(\"token\", d.token); pm.test(\"Login OK \u2014 token saved\", () => pm.response.to.have.status(200)); }",
-                  "else { pm.test(\"Login FAILED\", () => false); }"
+                  "pm.test(\"Login OK — session cookie set\", () => pm.response.to.have.status(200));",
+                  "if (d.user) console.log(\"Logged in as\", d.user.roleName + \" (\" + d.user.roleId + \") — auth now travels via the httpOnly cookie jar\");"
                 ]
               }
             }
@@ -64,14 +60,15 @@
           }
         },
         {
-          "name": "Login \u2014 Admin",
+          "name": "Login — Admin",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
                   "const d = pm.response.json();",
-                  "if (d.token) { pm.collectionVariables.set(\"token\", d.token); pm.test(\"Admin login OK\", () => pm.response.to.have.status(200)); }"
+                  "pm.test(\"Login OK — session cookie set\", () => pm.response.to.have.status(200));",
+                  "if (d.user) console.log(\"Logged in as\", d.user.roleName + \" (\" + d.user.roleId + \") — auth now travels via the httpOnly cookie jar\");"
                 ]
               }
             }
@@ -95,17 +92,12 @@
           "name": "Who Am I? (GET /auth/me)",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/auth/me"
           }
         },
         {
-          "name": "Login \u2014 WRONG password (expect 401)",
+          "name": "Login — WRONG password (expect 401)",
           "request": {
             "method": "POST",
             "header": [
@@ -129,14 +121,15 @@
           }
         },
         {
-          "name": "Login \u2014 QC Manager (Neha Singh)",
+          "name": "Login — QC Manager (Neha Singh)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
                   "const d = pm.response.json();",
-                  "if (d.token) pm.collectionVariables.set(\"token\", d.token);"
+                  "pm.test(\"Login OK — session cookie set\", () => pm.response.to.have.status(200));",
+                  "if (d.user) console.log(\"Logged in as\", d.user.roleName + \" (\" + d.user.roleId + \") — auth now travels via the httpOnly cookie jar\");"
                 ]
               }
             }
@@ -157,14 +150,15 @@
           }
         },
         {
-          "name": "Login \u2014 Operations Head (Sanjay Patel)",
+          "name": "Login — Operations Head (Sanjay Patel)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
                   "const d = pm.response.json();",
-                  "if (d.token) pm.collectionVariables.set(\"token\", d.token);"
+                  "pm.test(\"Login OK — session cookie set\", () => pm.response.to.have.status(200));",
+                  "if (d.user) console.log(\"Logged in as\", d.user.roleName + \" (\" + d.user.roleId + \") — auth now travels via the httpOnly cookie jar\");"
                 ]
               }
             }
@@ -185,14 +179,15 @@
           }
         },
         {
-          "name": "Login \u2014 Marketing Head (Vikram Rao)",
+          "name": "Login — Marketing Head (Vikram Rao)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
                   "const d = pm.response.json();",
-                  "if (d.token) pm.collectionVariables.set(\"token\", d.token);"
+                  "pm.test(\"Login OK — session cookie set\", () => pm.response.to.have.status(200));",
+                  "if (d.user) console.log(\"Logged in as\", d.user.roleName + \" (\" + d.user.roleId + \") — auth now travels via the httpOnly cookie jar\");"
                 ]
               }
             }
@@ -213,14 +208,15 @@
           }
         },
         {
-          "name": "Login \u2014 Managing Director (Sumedha Iyer)",
+          "name": "Login — Managing Director (Sumedha Iyer)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
                   "const d = pm.response.json();",
-                  "if (d.token) pm.collectionVariables.set(\"token\", d.token);"
+                  "pm.test(\"Login OK — session cookie set\", () => pm.response.to.have.status(200));",
+                  "if (d.user) console.log(\"Logged in as\", d.user.roleName + \" (\" + d.user.roleId + \") — auth now travels via the httpOnly cookie jar\");"
                 ]
               }
             }
@@ -241,14 +237,15 @@
           }
         },
         {
-          "name": "Login \u2014 Sales/KAM (Mohan Das)",
+          "name": "Login — Sales/KAM (Mohan Das)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
                   "const d = pm.response.json();",
-                  "if (d.token) pm.collectionVariables.set(\"token\", d.token);"
+                  "pm.test(\"Login OK — session cookie set\", () => pm.response.to.have.status(200));",
+                  "if (d.user) console.log(\"Logged in as\", d.user.roleName + \" (\" + d.user.roleId + \") — auth now travels via the httpOnly cookie jar\");"
                 ]
               }
             }
@@ -269,14 +266,15 @@
           }
         },
         {
-          "name": "Login \u2014 Finance Officer (Anand Kulkarni)",
+          "name": "Login — Finance Officer (Anand Kulkarni)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
                   "const d = pm.response.json();",
-                  "if (d.token) { pm.collectionVariables.set(\"token\", d.token); pm.test(\"Finance login OK\", () => pm.response.to.have.status(200)); }"
+                  "pm.test(\"Login OK — session cookie set\", () => pm.response.to.have.status(200));",
+                  "if (d.user) console.log(\"Logged in as\", d.user.roleName + \" (\" + d.user.roleId + \") — auth now travels via the httpOnly cookie jar\");"
                 ]
               }
             }
@@ -297,17 +295,13 @@
           }
         },
         {
-          "name": "RBAC Block \u2014 Finance tries to approve at TS_Review (expect 403)",
+          "name": "RBAC Block — Finance tries to approve at TS_Review (expect 403)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
@@ -324,12 +318,7 @@
       "request": {
         "method": "GET",
         "url": "{{base_url}}/",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{token}}"
-          }
-        ]
+        "header": []
       }
     },
     {
@@ -340,12 +329,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/master-data/customers",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
@@ -353,12 +337,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/master-data/users",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
@@ -366,12 +345,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/master-data/roles",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
@@ -379,12 +353,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/master-data/departments",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
@@ -392,12 +361,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/master-data/products",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
@@ -405,12 +369,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/master-data/complaintTypes",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
@@ -418,12 +377,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/master-data/sampleTypes",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
@@ -431,25 +385,15 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/master-data/salesPolicies",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
-          "name": "Invoice Lookup (SAP) \u2014 90009999",
+          "name": "Invoice Lookup (SAP) — 90009999",
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/master-data/invoice/{{invoiceNumber}}",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
@@ -489,12 +433,7 @@
                 }
               ]
             },
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
@@ -502,12 +441,7 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/api/master-data/sap-sync",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         }
       ]
@@ -516,7 +450,7 @@
       "name": "3. Full Complaint Lifecycle (run top to bottom)",
       "item": [
         {
-          "name": "Stage 1 \u2014 Create Complaint (Logged)",
+          "name": "Stage 1 — Create Complaint (Logged)",
           "event": [
             {
               "listen": "test",
@@ -536,16 +470,12 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"invoiceNumber\": \"{{invoiceNumber}}\",\n  \"title\": \"Caustic Soda contamination \u2014 5 MT drum batch\",\n  \"remarks\": \"Customer reports visible discoloration and odor in 2 of 5 MT received.\",\n  \"reportedBy\": \"CUST-2000001\",\n  \"lineItemsInput\": [\n    {\n      \"invoiceItemNo\": \"10\",\n      \"sapMaterialNo\": \"MAT-2001\",\n      \"defectiveQty\": 2,\n      \"complaintTypeId\": \"CT06\"\n    }\n  ],\n  \"attachmentsInput\": [\n    { \"fileReference\": \"photo_drum_01.jpg\", \"fileType\": \"image\", \"description\": \"Discoloration close-up\" }\n  ]\n}"
+              "raw": "{\n  \"invoiceNumber\": \"{{invoiceNumber}}\",\n  \"title\": \"Caustic Soda contamination — 5 MT drum batch\",\n  \"remarks\": \"Customer reports visible discoloration and odor in 2 of 5 MT received.\",\n  \"reportedBy\": \"CUST-2000001\",\n  \"lineItemsInput\": [\n    {\n      \"invoiceItemNo\": \"10\",\n      \"sapMaterialNo\": \"MAT-2001\",\n      \"defectiveQty\": 2,\n      \"complaintTypeId\": \"CT06\"\n    }\n  ],\n  \"attachmentsInput\": [\n    { \"fileReference\": \"photo_drum_01.jpg\", \"fileType\": \"image\", \"description\": \"Discoloration close-up\" }\n  ]\n}"
             }
           }
         },
@@ -554,12 +484,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/complaints/{{complaintNo}}",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
@@ -567,53 +492,40 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/status-sequence",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
-          "name": "Action: Approve (Logged \u2192 TS_Review)",
+          "name": "Action: Approve (Logged → TS_Review)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U002\",\n  \"actorRole\": \"TS\",\n  \"remarks\": \"Forwarded to QC after initial TS check.\"\n}"
+              "raw": "{\n  \"action\": \"approve\",\n  \"remarks\": \"Forwarded to QC after initial TS check.\"\n}"
             }
           }
         },
         {
-          "name": "Action: Approve (TS_Review \u2192 QC_Review)",
+          "name": "Action: Approve (TS_Review → QC_Review)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U004\",\n  \"actorRole\": \"QC\",\n  \"remarks\": \"Requesting physical sample before sign-off.\"\n}"
+              "raw": "{\n  \"action\": \"approve\",\n  \"remarks\": \"Requesting physical sample before sign-off.\"\n}"
             }
           }
         },
@@ -636,10 +548,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/samples",
@@ -650,38 +558,30 @@
           }
         },
         {
-          "name": "Action: Approve BLOCKED \u2014 sample not yet Received (expect 422)",
+          "name": "Action: Approve BLOCKED — sample not yet Received (expect 422)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U004\",\n  \"actorRole\": \"QC\"\n}"
+              "raw": "{\n  \"action\": \"approve\"\n}"
             }
           }
         },
         {
-          "name": "Update Sample \u2192 Received + Tested",
+          "name": "Update Sample → Received + Tested",
           "request": {
             "method": "PUT",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/samples/{{sampleId}}",
@@ -692,44 +592,36 @@
           }
         },
         {
-          "name": "Action: Approve (QC_Review \u2192 Sample_Awaited \u2192 next, gate now passes)",
+          "name": "Action: Approve (QC_Review → Sample_Awaited → next, gate now passes)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U004\",\n  \"actorRole\": \"QC\",\n  \"remarks\": \"Sample confirms contamination \u2014 forwarding for CAPA.\"\n}"
+              "raw": "{\n  \"action\": \"approve\",\n  \"remarks\": \"Sample confirms contamination — forwarding for CAPA.\"\n}"
             }
           }
         },
         {
-          "name": "Action: Approve (Sample_Awaited \u2192 CAPA_Pending)",
+          "name": "Action: Approve (Sample_Awaited → CAPA_Pending)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U004\",\n  \"actorRole\": \"QC\"\n}"
+              "raw": "{\n  \"action\": \"approve\"\n}"
             }
           }
         },
@@ -741,10 +633,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/capa",
@@ -755,107 +643,87 @@
           }
         },
         {
-          "name": "Action: Approve (CAPA_Pending \u2192 Ops_Head_Approval)",
+          "name": "Action: Approve (CAPA_Pending → Ops_Head_Approval)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U005\",\n  \"actorRole\": \"Operations\"\n}"
+              "raw": "{\n  \"action\": \"approve\"\n}"
             }
           }
         },
         {
-          "name": "Action: Approve (Ops_Head_Approval \u2192 Marketing_Review)",
+          "name": "Action: Approve (Ops_Head_Approval → Marketing_Review)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U006\",\n  \"actorRole\": \"Ops Head\"\n}"
+              "raw": "{\n  \"action\": \"approve\"\n}"
             }
           }
         },
         {
-          "name": "Action: Approve (Marketing_Review \u2192 Marketing_Head_Approval)",
+          "name": "Action: Approve (Marketing_Review → Marketing_Head_Approval)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U007\",\n  \"actorRole\": \"Marketing\"\n}"
+              "raw": "{\n  \"action\": \"approve\"\n}"
             }
           }
         },
         {
-          "name": "Action: Approve (Marketing_Head_Approval \u2192 MD_Approval)",
+          "name": "Action: Approve (Marketing_Head_Approval → MD_Approval)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U008\",\n  \"actorRole\": \"Marketing Head\"\n}"
+              "raw": "{\n  \"action\": \"approve\"\n}"
             }
           }
         },
         {
-          "name": "Action: Approve (MD_Approval \u2192 Visit_Pending)",
+          "name": "Action: Approve (MD_Approval → Visit_Pending)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U009\",\n  \"actorRole\": \"MD\",\n  \"remarks\": \"Approved \u2014 settlement exceeds \u20b91,00,000 threshold.\"\n}"
+              "raw": "{\n  \"action\": \"approve\",\n  \"remarks\": \"Approved — settlement exceeds ₹1,00,000 threshold.\"\n}"
             }
           }
         },
@@ -878,10 +746,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/visits",
@@ -899,10 +763,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/visits/{{visitId}}",
@@ -913,44 +773,36 @@
           }
         },
         {
-          "name": "Action: Approve (Visit_Pending \u2192 Finance_Processing)",
+          "name": "Action: Approve (Visit_Pending → Finance_Processing)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U010\",\n  \"actorRole\": \"Sales/KAM\"\n}"
+              "raw": "{\n  \"action\": \"approve\"\n}"
             }
           }
         },
         {
-          "name": "Action: Approve BLOCKED \u2014 no Credit Note yet (expect 422)",
+          "name": "Action: Approve BLOCKED — no Credit Note yet (expect 422)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U011\",\n  \"actorRole\": \"Finance Officer\"\n}"
+              "raw": "{\n  \"action\": \"approve\"\n}"
             }
           }
         },
@@ -962,37 +814,29 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/credit-note",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"reason\": \"Customer complaint settlement \u2014 contaminated drum batch\",\n  \"raisedBy\": \"U011\",\n  \"raisedByName\": \"Anand Kulkarni\"\n}"
+              "raw": "{\n  \"reason\": \"Customer complaint settlement — contaminated drum batch\",\n  \"raisedBy\": \"U011\",\n  \"raisedByName\": \"Anand Kulkarni\"\n}"
             }
           }
         },
         {
-          "name": "Action: Approve (Finance_Processing \u2192 Closed)",
+          "name": "Action: Approve (Finance_Processing → Closed)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"approve\",\n  \"actorId\": \"U011\",\n  \"actorRole\": \"Finance Officer\",\n  \"remarks\": \"Credit note confirmed \u2014 closing complaint.\"\n}"
+              "raw": "{\n  \"action\": \"approve\",\n  \"remarks\": \"Credit note confirmed — closing complaint.\"\n}"
             }
           }
         },
@@ -1001,25 +845,15 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/audit-log",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
-          "name": "Get Complaint (final state \u2014 should be Closed)",
+          "name": "Get Complaint (final state — should be Closed)",
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/complaints/{{complaintNo}}",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         }
       ]
@@ -1047,12 +881,7 @@
                 }
               ]
             },
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ]
+            "header": []
           }
         },
         {
@@ -1063,10 +892,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/line-items",
@@ -1084,10 +909,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/attachments",
@@ -1105,37 +926,29 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"reject\",\n  \"actorId\": \"U004\",\n  \"actorRole\": \"QC\",\n  \"remarks\": \"Insufficient detail \u2014 sending back.\"\n}"
+              "raw": "{\n  \"action\": \"reject\",\n  \"remarks\": \"Insufficient detail — sending back.\"\n}"
             }
           }
         },
         {
-          "name": "Action: Clarify (\u2192 Clarification_Sought)",
+          "name": "Action: Clarify (→ Clarification_Sought)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"clarify\",\n  \"actorId\": \"U002\",\n  \"actorRole\": \"TS\",\n  \"remarks\": \"Need clearer photos of the defect.\"\n}"
+              "raw": "{\n  \"action\": \"clarify\",\n  \"remarks\": \"Need clearer photos of the defect.\"\n}"
             }
           }
         },
@@ -1147,16 +960,12 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"resolve_clarification\",\n  \"actorId\": \"CUST-2000001\",\n  \"actorRole\": \"Customer/Distributor\",\n  \"remarks\": \"Re-uploaded clearer photos.\"\n}"
+              "raw": "{\n  \"action\": \"resolve_clarification\",\n  \"remarks\": \"Re-uploaded clearer photos.\"\n}"
             }
           }
         },
@@ -1168,31 +977,23 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints/{{complaintNo}}/action",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action\": \"auto_close\",\n  \"actorId\": \"SYSTEM\",\n  \"actorRole\": \"System\",\n  \"remarks\": \"SLA breached \u2014 no response from customer in 30 days.\"\n}"
+              "raw": "{\n  \"action\": \"auto_close\",\n  \"remarks\": \"SLA breached — no response from customer in 30 days.\"\n}"
             }
           }
         },
         {
-          "name": "Create Complaint \u2014 Low Value (no MD/Visit gates, no sample)",
+          "name": "Create Complaint — Low Value (no MD/Visit gates, no sample)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints",
@@ -1203,17 +1004,13 @@
           }
         },
         {
-          "name": "Create Complaint \u2014 Bad Invoice (SAP fallback path)",
+          "name": "Create Complaint — Bad Invoice (SAP fallback path)",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
               }
             ],
             "url": "{{base_url}}/api/complaints",
@@ -1232,12 +1029,7 @@
           "name": "Get All Notifications",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/notifications"
           }
         },
@@ -1245,12 +1037,7 @@
           "name": "Get Notifications for Complaint",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/notifications/{{complaintNo}}"
           }
         }
@@ -1263,12 +1050,7 @@
           "name": "Get All SLA Breaches",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/sla/breaches"
           }
         },
@@ -1276,12 +1058,7 @@
           "name": "Get SLA Breaches for Complaint",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/sla/breaches/{{complaintNo}}"
           }
         },
@@ -1289,12 +1066,7 @@
           "name": "Trigger Manual SLA Check (instant)",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/sla/check"
           }
         }
@@ -1307,12 +1079,7 @@
           "name": "Full KPI Dashboard",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/kpi"
           }
         },
@@ -1320,30 +1087,20 @@
           "name": "KPI Summary (lightweight)",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/kpi/summary"
           }
         }
       ]
     },
     {
-      "name": "8. NFR \u2014 Security, Archival & Rollout (12.6/12.7/12.8)",
+      "name": "8. NFR — Security, Archival & Rollout (12.6/12.7/12.8)",
       "item": [
         {
           "name": "Audit Log Integrity Verify (12.6)",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/audit-log/verify"
           }
         },
@@ -1351,12 +1108,7 @@
           "name": "Archival Policy (12.7)",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/archive/policy"
           }
         },
@@ -1364,12 +1116,7 @@
           "name": "Trigger Manual Archival Check (12.7)",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/archive/run"
           }
         },
@@ -1377,12 +1124,7 @@
           "name": "Get Archived Complaints (12.7)",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/archive"
           }
         },
@@ -1390,25 +1132,15 @@
           "name": "Archival Log (12.7)",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/archive/log"
           }
         },
         {
-          "name": "Rollout Status \u2014 Current Phase (12.8)",
+          "name": "Rollout Status — Current Phase (12.8)",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/api/rollout"
           }
         },
@@ -1416,12 +1148,7 @@
           "name": "Health Check (with security headers)",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
+            "header": [],
             "url": "{{base_url}}/"
           }
         }

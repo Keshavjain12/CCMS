@@ -1,20 +1,23 @@
-// =========================================================================
-// COMPLAINT ROUTES  —  /api/complaints
-// =========================================================================
-// Full complaint transaction lifecycle:
-//   Stage 1  → Create (invoice lookup from SAP + policy check + line items)
-//   Stage 2  → TS Review
-//   Stage 3  → QC Review + Sample gate
-//   Stage 4  → CAPA + Ops Head Approval
-//   Stage 5  → Marketing Review
-//   Stage 6  → Marketing Head Approval (+ policy compliance display)
-//   Stage 7  → MD Approval (conditional — settlement > 1L or policy breach)
-//   [Visit]  → Customer Visit (conditional — key account or high value)
-//   Stage 8  → Finance: SAP Credit Note push → Closed
-// =========================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 const express = require("express");
+const fs = require("fs");
 const router = require("../utils/asyncRoute").safeRouter();
+const db = require("../db/pool");
+const fileStore = require("../utils/fileStore");
 const {
   complaintStore,
   lineItemStore,
@@ -36,11 +39,11 @@ const rollout = require("../config/rollout");
 const notify = require("../services/notificationService");
 const { paginate } = require("../utils/pagination");
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────
 
-/** Enrich a complaint with its related records for a full-picture response. */
-// The six child lookups are independent, so they run concurrently rather
-// than as six sequential round-trips.
+
+
+
+
 async function enrich(complaint) {
   if (!complaint) return null;
   const [lineItems, attachments, samples, visits, capas, creditNotes] = await Promise.all([
@@ -58,12 +61,41 @@ async function enrich(complaint) {
   };
 }
 
-// =========================================================================
-// READ SCOPING (Section 12.3 — least privilege on reads)
-// The rule itself lives in services/visibility.js so that every endpoint
-// returning complaint data — including the KPI dashboard — enforces the same
-// one. The backend is the enforcer; frontend filters are only cosmetic.
-// =========================================================================
+
+async function enrichMany(complaints) {
+  if (!complaints.length) return [];
+  const nos = complaints.map((c) => c.complaintNo);
+  const [lineItems, attachments, samples, visits, capas, creditNotes] = await Promise.all([
+    lineItemStore.getForComplaints(nos),
+    attachmentStore.getForComplaints(nos),
+    sampleStore.getForComplaints(nos),
+    visitStore.getForComplaints(nos),
+    capaStore.getForComplaints(nos),
+    creditNoteStore.getForComplaints(nos),
+  ]);
+  const groupBy = (rows) => rows.reduce((m, r) => {
+    (m[r.complaintNo] = m[r.complaintNo] || []).push(r); return m;
+  }, {});
+  const li = groupBy(lineItems), at = groupBy(attachments), sa = groupBy(samples),
+        vi = groupBy(visits), ca = groupBy(capas), cn = groupBy(creditNotes);
+  return complaints.map((c) => ({
+    ...c,
+    lineItems:   li[c.complaintNo] || [],
+    attachments: at[c.complaintNo] || [],
+    samples:     sa[c.complaintNo] || [],
+    visits:      vi[c.complaintNo] || [],
+    capas:       ca[c.complaintNo] || [],
+    creditNotes: cn[c.complaintNo] || [],
+    statusSequence: workflow.getEffectiveSequence(c),
+  }));
+}
+
+
+
+
+
+
+
 const { visibleToUser, filterVisible } = require("../services/visibility");
 
 async function denyIfHidden(req, res, complaint) {
@@ -72,37 +104,37 @@ async function denyIfHidden(req, res, complaint) {
   return true;
 }
 
-// =========================================================================
-// STAGE 1 — CREATE COMPLAINT
-// POST /api/complaints
-// =========================================================================
-// 1a. Accepts invoice number → pulls invoice + line item data from SAP.
-// 1b. Looks up customer master from SAP.
-// 1c. Identifies applicable Sales Policy; checks complaint window.
-// 1d. Creates complaint record + line items with auto-computed defective values.
-// 1e. Determines sampleRequired flag from complaint types selected.
-// =========================================================================
-router.post("/", async (req, res) => {
+
+
+
+
+
+
+
+
+
+
+router.post("/", async (req, res, next) => {
   try {
     const {
       invoiceNumber,
       title,
       remarks,
-      lineItemsInput = [],  // [{invoiceItemNo, sapMaterialNo, defectiveQty, complaintTypeId}]
-      attachmentsInput = [], // [{fileReference, fileType, description}]
-      reportedBy,           // userId of reporter
+      lineItemsInput = [],
+      attachmentsInput = [],
+      reportedBy,
     } = req.body;
 
     if (!invoiceNumber) return res.status(400).json({ error: "invoiceNumber is required" });
     if (!lineItemsInput.length) return res.status(400).json({ error: "At least one line item (affected product) is required" });
 
-    // ── 1a. Invoice lookup from SAP (real-time) ──────────────────────
+
     let invoice;
     let sapFallback = false;
     try {
       invoice = await sap.getInvoice(invoiceNumber);
     } catch (sapErr) {
-      // Section 11.2: fallback — allow complaint creation with Pending SAP Validation
+
       sapFallback = true;
       invoice = {
         BillingDocument:     invoiceNumber,
@@ -114,7 +146,7 @@ router.post("/", async (req, res) => {
       };
     }
 
-    // ── 1b. Customer master lookup ───────────────────────────────────
+
     let customerRecord;
     let customerSapData;
     try {
@@ -136,18 +168,18 @@ router.post("/", async (req, res) => {
       };
     }
 
-    // ── 1c. Sales Policy check (Section 9.2) ─────────────────────────
-    // Identify business line from first line item's product
+
+
     const firstItem = lineItemsInput[0];
     const productInfo = firstItem.sapMaterialNo
       ? masterData.findProduct(firstItem.sapMaterialNo)
       : null;
     const businessLine = productInfo?.businessLine || customerRecord.businessLine || "Paper";
 
-    // ── Rollout gate (Section 12.8) ──────────────────────────────────
-    // Phases 1 and 2 limit which business lines and regions may file at all.
-    // Checked here, once both the business line and the customer's region are
-    // known, and before any record is written.
+
+
+
+
     const gate = rollout.checkRolloutGate(businessLine, customerRecord.region);
     if (!gate.allowed) {
       return res.status(403).json({ error: gate.reason, phase: gate.phase, hint: gate.hint });
@@ -155,8 +187,8 @@ router.post("/", async (req, res) => {
 
     const policy = masterData.findApplicablePolicy(businessLine, customerRecord.segment);
 
-    // Compute total settlement value (sum of all defective values)
-    // We need unit prices from invoice line items
+
+
     const invoiceItemMap = {};
     (invoice.lineItems || []).forEach((li) => {
       invoiceItemMap[li.BillingDocumentItem] = li;
@@ -169,14 +201,14 @@ router.post("/", async (req, res) => {
     const createdLineItems = lineItemsInput.map((input) => {
       const invItem = invoiceItemMap[input.invoiceItemNo];
 
-      // ── PRICE-TAMPERING GUARD (Section 12.6) ───────────────────────
-      // When we have a validated SAP invoice, unitPrice and invoiceQty are
-      // taken STRICTLY from SAP — never from the request body. A line item
-      // that references an invoice item not present on the real invoice is
-      // rejected, so a caller cannot invent a product or inflate a price by
-      // editing the HTTP payload. Client-supplied money figures are only
-      // trusted in the SAP-down fallback path (complaint is flagged
-      // "pending validation" per Section 11.2).
+
+
+
+
+
+
+
+
       let unitPrice, invoiceQty, source;
       if (!sapFallback) {
         if (!invItem) { invalidItems.push(input.invoiceItemNo || "(missing invoiceItemNo)"); return null; }
@@ -200,7 +232,7 @@ router.post("/", async (req, res) => {
       return {
         invoiceNumber:    invoiceNumber,
         invoiceItemNo:    input.invoiceItemNo || source.BillingDocumentItem,
-        // Prefer SAP-authoritative descriptors over anything the client sent.
+
         sapMaterialNo:    source.Material            || input.sapMaterialNo,
         productName:      source.MaterialDescription || input.productName,
         invoiceQty,
@@ -221,7 +253,26 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // Policy compliance check
+
+
+
+
+
+
+
+    const overclaimed = createdLineItems
+      .filter(Boolean)
+      .filter((li) => li.defectiveQty > li.invoiceQty);
+    if (overclaimed.length) {
+      return res.status(400).json({
+        error: "Defective quantity cannot exceed the invoiced quantity for a line item.",
+        overclaimedItems: overclaimed.map((li) => ({
+          invoiceItemNo: li.invoiceItemNo, invoiceQty: li.invoiceQty, defectiveQty: li.defectiveQty,
+        })),
+      });
+    }
+
+
     const policyResult = masterData.checkPolicyCompliance(
       policy,
       invoice.BillingDocumentDate,
@@ -229,45 +280,58 @@ router.post("/", async (req, res) => {
       parseFloat(invoice.NetAmount)
     );
 
-    // ── 1d. Create complaint ──────────────────────────────────────────
-    const complaint = await complaintStore.create({
-      title:                title || `Complaint for Invoice ${invoiceNumber}`,
-      remarks:              remarks || "",
-      invoiceNumber:        invoice.BillingDocument,
-      invoiceDate:          invoice.BillingDocumentDate,
-      invoiceValue:         parseFloat(invoice.NetAmount),
-      currency:             invoice.TransactionCurrency,
-      customerId:           customerRecord.customerId,
-      customerName:         customerRecord.name,
-      customerSegment:      customerRecord.segment,
-      isKeyAccount:         customerRecord.isKeyAccount,
-      businessLine,
-      settlementValue:      totalDefectiveValue,
-      policyId:             policy?.policyId || null,
-      policyFlag:           policyResult.flag,
-      policyCompliance:     policyResult.compliant ? "Within Policy" : "Breach",
-      policyClauseBreached: policyResult.clauseBreached || null,
-      policyForcesMdApproval: policyResult.forcesMdApproval || false,
-      sampleRequired:       anyLineItemSampleRequired,
-      // Attribution comes from the authenticated JWT, not the request body.
-      reportedBy:           req.user.userId,
-      _customer:            customerRecord,
-      _sapFallback:         sapFallback,
+
+
+
+
+
+
+    const knownCustomerId = masterData.findCustomer(customerRecord.customerId)
+      ? customerRecord.customerId : null;
+
+
+
+
+
+
+
+    const complaint = await db.tx(async (client) => {
+      const c = await complaintStore.create({
+        title:                title || `Complaint for Invoice ${invoiceNumber}`,
+        remarks:              remarks || "",
+        invoiceNumber:        invoice.BillingDocument,
+        invoiceDate:          invoice.BillingDocumentDate,
+        invoiceValue:         parseFloat(invoice.NetAmount),
+        currency:             invoice.TransactionCurrency,
+        customerId:           knownCustomerId,
+        customerName:         customerRecord.name,
+        customerSegment:      customerRecord.segment,
+        isKeyAccount:         customerRecord.isKeyAccount,
+        businessLine,
+        settlementValue:      totalDefectiveValue,
+        policyId:             policy?.policyId || null,
+        policyFlag:           policyResult.flag,
+        policyCompliance:     policyResult.compliant ? "Within Policy" : "Breach",
+        policyClauseBreached: policyResult.clauseBreached || null,
+        policyForcesMdApproval: policyResult.forcesMdApproval || false,
+        sampleRequired:       anyLineItemSampleRequired,
+
+        reportedBy:           req.user.userId,
+        _customer:            customerRecord,
+        _sapFallback:         sapFallback,
+      }, client);
+
+      for (const li of createdLineItems) {
+        await lineItemStore.create({ complaintNo: c.complaintNo, ...li }, client);
+      }
+
+      for (const att of (attachmentsInput || [])) {
+        await attachmentStore.create({ complaintNo: c.complaintNo, ...att, uploadedBy: req.user.userId }, client);
+      }
+      return c;
     });
 
-    // ── 1e. Persist line items ─────────────────────────────────────────
-    // for...of, not forEach: forEach ignores the promise an async callback
-    // returns, so the inserts would race the response.
-    for (const li of createdLineItems) {
-      await lineItemStore.create({ complaintNo: complaint.complaintNo, ...li });
-    }
 
-    // Persist attachments at creation (Stage 1 photos/videos)
-    for (const att of (attachmentsInput || [])) {
-      await attachmentStore.create({ complaintNo: complaint.complaintNo, ...att, uploadedBy: reportedBy });
-    }
-
-    // ── Audit log ─────────────────────────────────────────────────────
     await audit.log({
       complaintNo: complaint.complaintNo,
       fromStatus:  null,
@@ -296,52 +360,52 @@ router.post("/", async (req, res) => {
       warnings:    sapFallback ? ["SAP invoice lookup failed — complaint created with manual data, pending validation"] : [],
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// =========================================================================
-// LIST COMPLAINTS
-// GET /api/complaints?status=&customerId=&businessLine=
-// =========================================================================
+
+
+
+
 router.get("/", async (req, res) => {
-  // 1) store-level filters (status/customerId/businessLine)
-  // 2) per-user visibility scoping — a user only receives complaints they are
-  //    entitled to see (see visibleToUser). This is the real fix for the
-  //    over-fetch / broken-access-control finding: the list no longer dumps
-  //    every complaint to every authenticated role.
-  // 3) ?limit/?offset bounding so the payload can't grow unbounded.
-  // archived is forced, not merged from req.query: this is the live list, and
-  // req.query is the caller's. Left to the default, ?archived=true would have
-  // served the archive from here and sidestepped the Admin-only /api/archive.
+
+
+
+
+
+
+
+
+
   const all = await complaintStore.getAll({ ...req.query, archived: false });
   const visible = await filterVisible(req.user, all);
-  // Paginate FIRST, then enrich only the returned page: enrich() costs six
-  // queries per complaint, so enriching the whole list would be wasteful.
+
+
   const page = paginate(visible, req.query, "data");
-  page.data = await Promise.all(page.data.map(enrich));
+  page.data = await enrichMany(page.data);
   res.json(page);
 });
 
-// =========================================================================
-// GET SINGLE COMPLAINT
-// GET /api/complaints/:complaintNo
-// =========================================================================
+
+
+
+
 router.get("/:complaintNo", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: `Complaint ${req.params.complaintNo} not found` });
-  // IDOR guard: enumerating complaint numbers must not reveal complaints the
-  // caller isn't entitled to see.
+
+
   if (await denyIfHidden(req, res, complaint)) return;
   res.json(await enrich(complaint));
 });
 
-// =========================================================================
-// UNIVERSAL WORKFLOW ACTION
-// POST /api/complaints/:complaintNo/action
-// Body: { action, actorId, actorRole, remarks }
-// Actions: approve | reject | clarify | resolve_clarification | auto_close
-// =========================================================================
+
+
+
+
+
+
 router.post("/:complaintNo/action", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
@@ -351,7 +415,7 @@ router.post("/:complaintNo/action", async (req, res) => {
   const { action, remarks } = req.body;
   if (!action) return res.status(400).json({ error: "action is required" });
 
-  // RBAC: check if logged-in user can act on current status
+
   const rbac = canActOnStatus(req.user, complaint.status, action, complaint._priorStatus);
   if (!rbac.allowed) {
     return res.status(403).json({ error: rbac.reason, yourRole: req.user.roleId });
@@ -380,7 +444,7 @@ router.post("/:complaintNo/action", async (req, res) => {
     remarks:     remarks || null,
   });
 
-  // Fire notification async — does not block the response
+
   const updatedComplaint = await complaintStore.getByNo(complaint.complaintNo);
   notify.sendNotification({
     complaint:  updatedComplaint,
@@ -403,13 +467,16 @@ router.post("/:complaintNo/action", async (req, res) => {
   });
 });
 
-// =========================================================================
-// ADD LINE ITEM (additional items to an existing complaint)
-// POST /api/complaints/:complaintNo/line-items
-// =========================================================================
+
+
+
+
 router.post("/:complaintNo/line-items", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
+
+
+  if (await denyIfHidden(req, res, complaint)) return;
   if (!["Draft", "Logged"].includes(complaint.status)) {
     return res.status(422).json({ error: "Line items can only be added in Draft or Logged status" });
   }
@@ -418,10 +485,10 @@ router.post("/:complaintNo/line-items", async (req, res) => {
   const parsedDefQty = parseFloat(defectiveQty || 0);
   const cType = masterData.findComplaintType(complaintTypeId);
 
-  // ── PRICE-TAMPERING GUARD ──────────────────────────────────────────
-  // unitPrice / invoiceQty are resolved from the SAP invoice, never from the
-  // request body. An item that isn't on the invoice is rejected. Manual money
-  // figures are accepted only when the complaint is already SAP-pending.
+
+
+
+
   let unitPrice = 0, invoiceQty = 0;
   let mat = sapMaterialNo, name = productName, unit = uom;
   try {
@@ -450,6 +517,15 @@ router.post("/:complaintNo/line-items", async (req, res) => {
     invoiceQty = parseFloat(req.body.invoiceQty || 0);
   }
 
+
+
+  if (parsedDefQty > invoiceQty) {
+    return res.status(400).json({
+      error: "Defective quantity cannot exceed the invoiced quantity.",
+      invoiceQty, defectiveQty: parsedDefQty,
+    });
+  }
+
   const li = await lineItemStore.create({
     complaintNo:      complaint.complaintNo,
     invoiceNumber:    complaint.invoiceNumber,
@@ -463,38 +539,139 @@ router.post("/:complaintNo/line-items", async (req, res) => {
     sampleRequired:   cType?.sampleRequired || false,
   });
 
-  // Recalculate settlement value
+
   const newTotal = await lineItemStore.getTotalDefectiveValue(complaint.complaintNo);
   await complaintStore.update(complaint.complaintNo, { settlementValue: newTotal });
 
-  // Update sampleRequired flag if this line item needs it
+
   if (cType?.sampleRequired && !complaint.sampleRequired) {
     await complaintStore.update(complaint.complaintNo, { sampleRequired: true });
   }
 
+  await audit.log({
+    complaintNo: complaint.complaintNo,
+    action:      "Line Item Added",
+    actorType:   "User",
+    actorId:     req.user.userId,
+    actorRole:   req.user.roleName,
+    remarks:     `${name || mat || "item"} — defective ${parsedDefQty}; settlement now ${newTotal}`,
+  });
+
   res.status(201).json({ success: true, lineItem: li, newSettlementValue: newTotal });
 });
 
-// =========================================================================
-// ADD ATTACHMENT
-// POST /api/complaints/:complaintNo/attachments
-// =========================================================================
+
+
+
+
 router.post("/:complaintNo/attachments", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
+
+
+  if (await denyIfHidden(req, res, complaint)) return;
+
   const att = await attachmentStore.create({
     complaintNo: complaint.complaintNo,
     ...req.body,
+    uploadedBy: req.user.userId,
   });
+
+  await audit.log({
+    complaintNo: complaint.complaintNo,
+    action:      `Attachment Added (${att.fileType || "file"})`,
+    actorType:   "User",
+    actorId:     req.user.userId,
+    actorRole:   req.user.roleName,
+    remarks:     att.description || att.fileReference || null,
+  });
+
   res.status(201).json({ success: true, attachment: att });
 });
 
-// =========================================================================
-// SAMPLE MANAGEMENT  —  Section 6.3
-// POST /api/complaints/:complaintNo/samples        → Create sample record
-// PUT  /api/complaints/:complaintNo/samples/:sampleId → Update status
-// =========================================================================
+
+
+
+
+
+
+
+
+router.post(
+  "/:complaintNo/attachments/upload",
+  express.raw({ type: () => true, limit: fileStore.MAX_BYTES }),
+  async (req, res) => {
+    const complaint = await complaintStore.getByNo(req.params.complaintNo);
+    if (!complaint) return res.status(404).json({ error: "Complaint not found" });
+    if (await denyIfHidden(req, res, complaint)) return;
+
+    const fileType = String(req.query.fileType || "photo");
+    if (!fileStore.EXT_BY_TYPE[fileType]) {
+      return res.status(400).json({ error: `Invalid fileType. Valid: ${Object.keys(fileStore.EXT_BY_TYPE).join(", ")}` });
+    }
+    const buf = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!buf || !buf.length) {
+      return res.status(400).json({ error: "Empty upload — send the file bytes as the request body (Content-Type must not be application/json)." });
+    }
+
+    const fileName   = String(req.query.fileName || "upload");
+    const storedName = fileStore.newStoredName(fileType, fileName);
+    fileStore.write(storedName, buf);
+
+    const att = await attachmentStore.create({
+      complaintNo:   complaint.complaintNo,
+      fileReference: storedName,
+      fileType,
+      description:   req.query.description ? String(req.query.description) : fileName,
+      uploadedBy:    req.user.userId,
+    });
+
+    await audit.log({
+      complaintNo: complaint.complaintNo,
+      action:      `Attachment Uploaded (${fileType}, ${buf.length} bytes)`,
+      actorType:   "User",
+      actorId:     req.user.userId,
+      actorRole:   req.user.roleName,
+      remarks:     fileName,
+    });
+
+    res.status(201).json({
+      success: true,
+      attachment: att,
+      bytes: buf.length,
+      downloadUrl: `/api/complaints/${complaint.complaintNo}/attachments/${att.attachmentId}/file`,
+    });
+  }
+);
+
+
+router.get("/:complaintNo/attachments/:attachmentId/file", async (req, res) => {
+  const complaint = await complaintStore.getByNo(req.params.complaintNo);
+  if (!complaint) return res.status(404).json({ error: "Complaint not found" });
+  if (await denyIfHidden(req, res, complaint)) return;
+
+  const att = await attachmentStore.getById(req.params.attachmentId);
+  if (!att || att.complaintNo !== complaint.complaintNo) {
+    return res.status(404).json({ error: "Attachment not found" });
+  }
+  if (att.purged) {
+    return res.status(410).json({ error: "This attachment file was purged under the retention policy; metadata is retained." });
+  }
+  const filePath = fileStore.resolveStored(att.fileReference);
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "No stored file for this attachment (it may be a reference only)." });
+  }
+  res.setHeader("Content-Type", fileStore.contentTypeFor(att.fileReference));
+  res.setHeader("Content-Disposition", `inline; filename="${String(att.description || "file").replace(/[^\w.\-]/g, "_")}"`);
+  fs.createReadStream(filePath).pipe(res);
+});
+
+
+
+
+
+
 router.post("/:complaintNo/samples", requireRoles(["R003","R004"]), async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
@@ -504,13 +681,13 @@ router.post("/:complaintNo/samples", requireRoles(["R003","R004"]), async (req, 
     complaintNo:    complaint.complaintNo,
     sampleTypeName: sType?.sampleTypeName,
     ...req.body,
-    createdBy:      req.user.userId, // authoritative — overrides any body value
+    createdBy:      req.user.userId,
   });
 
-  // No write-back of the sample reference: _latestSample is not a column, it
-  // is derived per read by the LATERAL join in the store, so this update was
-  // discarded by buildSet. It is a leftover from the in-memory store, where
-  // the reference had to be kept in sync by hand.
+
+
+
+
 
   await audit.log({
     complaintNo: complaint.complaintNo,
@@ -535,7 +712,7 @@ router.put("/:complaintNo/samples/:sampleId", requireRoles(["R003","R004"]), asy
 
   const updates = {};
   if (sampleStatus)         updates.sampleStatus = sampleStatus;
-  // Who handled the sample is the authenticated QC user, not a body value.
+
   if (receivedDate || sampleStatus === "Received") updates.receivedBy = req.user.userId;
   if (receivedDate)         updates.receivedDate = receivedDate;
   if (testResult)           updates.testResult = testResult;
@@ -546,7 +723,7 @@ router.put("/:complaintNo/samples/:sampleId", requireRoles(["R003","R004"]), asy
   const sample = await sampleStore.update(req.params.sampleId, updates);
   if (!sample) return res.status(404).json({ error: "Sample not found" });
 
-  // No write-back needed — see the sample-create route above.
+
 
   await audit.log({
     complaintNo: complaint.complaintNo,
@@ -560,16 +737,16 @@ router.put("/:complaintNo/samples/:sampleId", requireRoles(["R003","R004"]), asy
   res.json({ success: true, sample });
 });
 
-// =========================================================================
-// VISIT MANAGEMENT  —  Section 7
-// POST /api/complaints/:complaintNo/visits        → Schedule visit
-// PUT  /api/complaints/:complaintNo/visits/:visitId → Update outcome
-// =========================================================================
+
+
+
+
+
 router.post("/:complaintNo/visits", requireRoles(["R010","R011"]), async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
-  // Determine visit type
+
   const isMandatory = workflow.requiresVisit(complaint);
   const visit = await visitStore.create({
     complaintNo:   complaint.complaintNo,
@@ -579,7 +756,7 @@ router.post("/:complaintNo/visits", requireRoles(["R010","R011"]), async (req, r
     assignedTo:    req.body.assignedTo,
   });
 
-  // Flag visit on complaint
+
   await complaintStore.update(complaint.complaintNo, { visitRequested: true });
 
   await audit.log({
@@ -600,10 +777,10 @@ router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), async
 
   const { visitStatus, visitDate, findings, customerAcknowledgement, outcome } = req.body;
 
-  // visit_status and outcome are CHECK-constrained columns. Reject bad values
-  // here with a 400 the caller can act on, rather than letting Postgres raise
-  // a constraint violation. Empty strings mean "not recorded yet" and are
-  // skipped below, so they never reach the constraint.
+
+
+
+
   if (visitStatus && !VISIT_STATUSES.includes(visitStatus)) {
     return res.status(400).json({ error: `Invalid visitStatus. Valid: ${VISIT_STATUSES.join(", ")}` });
   }
@@ -611,8 +788,8 @@ router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), async
     return res.status(400).json({ error: `Invalid outcome. Valid: ${VISIT_OUTCOMES.join(", ")}` });
   }
 
-  // Only write what was actually supplied — passing every key through would
-  // null out fields the caller never mentioned.
+
+
   const updates = {};
   if (visitStatus)            updates.visitStatus = visitStatus;
   if (visitDate)              updates.visitDate = visitDate;
@@ -634,21 +811,21 @@ router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), async
   res.json({ success: true, visit });
 });
 
-// DELETE /api/complaints/:complaintNo/visits/:visitId
-// Undo a visit that was scheduled by mistake. Scheduling is one click, so
-// mis-scheduling is easy and needs a way back.
-//
-// A visit that has been carried out is never deleted — it is a record of
-// something that happened, and Section 7.1 keeps it. So removal is limited to
-// visits holding no recorded work; anything else must be Cancelled, which
-// preserves the row. The removal itself is audited, leaving Scheduled →
-// Removed in the trail rather than an audit entry pointing at nothing.
+
+
+
+
+
+
+
+
+
 router.delete("/:complaintNo/visits/:visitId", requireRoles(["R010", "R011"]), async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
   const visit = await visitStore.getById(req.params.visitId);
-  // Guard against removing a visit via an unrelated complaint's URL.
+
   if (!visit || visit.complaintNo !== complaint.complaintNo) {
     return res.status(404).json({ error: "Visit not found" });
   }
@@ -673,10 +850,10 @@ router.delete("/:complaintNo/visits/:visitId", requireRoles(["R010", "R011"]), a
   res.json({ success: true, removed: visit.visitId });
 });
 
-// =========================================================================
-// CAPA MANAGEMENT  —  Section 4
-// POST /api/complaints/:complaintNo/capa
-// =========================================================================
+
+
+
+
 router.post("/:complaintNo/capa", requireRoles(["R005","R006"]), async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
@@ -691,7 +868,7 @@ router.post("/:complaintNo/capa", requireRoles(["R005","R006"]), async (req, res
     complaintNo:          complaint.complaintNo,
     sampleTestReference:  req.body.sampleTestReference,
     ...req.body,
-    // Authoritative attribution from the JWT — overrides any body value.
+
     documentedBy:         req.user.userId,
     documentedByName:     req.user.name,
   });
@@ -708,12 +885,12 @@ router.post("/:complaintNo/capa", requireRoles(["R005","R006"]), async (req, res
   res.status(201).json({ success: true, capa });
 });
 
-// =========================================================================
-// FINANCE: RAISE CREDIT NOTE IN SAP  —  Section 11.1 Touchpoints 5 & 6
-// POST /api/complaints/:complaintNo/credit-note
-// Triggered at Finance_Processing status; pushes to SAP and writes back CN number.
-// =========================================================================
-router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res) => {
+
+
+
+
+
+router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res, next) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
@@ -729,7 +906,7 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
   try {
     const items = await lineItemStore.getForComplaint(complaint.complaintNo);
 
-    // SAP Call — Touchpoint 5: CCMS → SAP
+
     await audit.log({
       complaintNo: complaint.complaintNo,
       action:      "SAP Credit Note Request Sent",
@@ -749,20 +926,20 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
       lineItems:       items,
     });
 
-    // SAP Call — Touchpoint 6: Credit Note number written back to CCMS
+
     const cn = await creditNoteStore.create({
       complaintNo:       complaint.complaintNo,
       creditNoteNumber:  sapResult.CreditNoteNumber,
       sapDocumentNumber: sapResult.SapDocumentNumber,
       amount:            complaint.settlementValue,
       currency:          complaint.currency,
-      // Authoritative — the Finance officer is identified by their JWT.
+
       raisedBy:          req.user.userId,
       raisedByName:      req.user.name,
-      notifiedTo:        ["Marketing Head", "KAM", "Customer"],  // Section 5 — post-closure notifications
+      notifiedTo:        ["Marketing Head", "KAM", "Customer"],
     });
 
-    // Update complaint with credit note number (enables Closed transition)
+
     await complaintStore.update(complaint.complaintNo, {
       creditNoteNumber: sapResult.CreditNoteNumber,
     });
@@ -798,14 +975,19 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
       actorId:     "SYSTEM",
       actorRole:   "SAP Integration",
     });
-    res.status(500).json({ error: `SAP Credit Note creation failed: ${err.message}` });
+
+
+
+    err.status = 502;
+    err.publicMessage = "Credit note could not be raised in SAP. Please retry; if it persists, contact support.";
+    next(err);
   }
 });
 
-// =========================================================================
-// AUDIT LOG
-// GET /api/complaints/:complaintNo/audit-log
-// =========================================================================
+
+
+
+
 router.get("/:complaintNo/audit-log", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
@@ -818,10 +1000,10 @@ router.get("/:complaintNo/audit-log", async (req, res) => {
   });
 });
 
-// =========================================================================
-// WORKFLOW STATUS SEQUENCE
-// GET /api/complaints/:complaintNo/status-sequence
-// =========================================================================
+
+
+
+
 router.get("/:complaintNo/status-sequence", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });

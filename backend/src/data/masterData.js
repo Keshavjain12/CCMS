@@ -1,27 +1,5 @@
-// =========================================================================
-// MASTER DATA  —  CCMS
-// =========================================================================
-// Source: Section 3 (Master Data), Section 6.2 (Sample Types),
-//         Section 9.1 (Sales Policies).
-//
-// Backed by PostgreSQL, cached in memory.
-//
-// Why a cache: master data is small (a few hundred rows), changes only via
-// the nightly SAP sync, and is read on virtually every request. Loading it
-// once at boot keeps every accessor SYNCHRONOUS, so the policy engine, SAP
-// service and RBAC layer stay exactly as they were. Postgres remains the
-// source of truth; call reload() after a SAP sync to refresh.
-//
-// Entities:
-//   1. Customers / Distributors   2. Users        3. Roles
-//   4. Departments                5. Products     6. Invoices
-//   7. Complaint Types            8. Sample Types 9. Sales Policies
-// =========================================================================
-
 const db = require("../db/pool");
 
-// Exported containers are mutated IN PLACE on load — never reassigned —
-// so modules that captured a reference at require() time stay correct.
 const customers      = [];
 const users          = [];
 const roles          = [];
@@ -30,7 +8,7 @@ const products       = [];
 const complaintTypes = [];
 const sampleTypes    = [];
 const salesPolicies  = [];
-const invoices       = {};   // keyed by invoice number, in SAP OData shape
+const invoices       = {};
 
 let loaded = false;
 
@@ -39,10 +17,6 @@ function refill(target, rows) {
   rows.forEach((r) => target.push(r));
 }
 
-/**
- * Hydrate every master entity from Postgres. Called once at boot (see
- * server.js) and again after a SAP master-data sync.
- */
 async function load() {
   refill(departments, await db.many(`
     SELECT department_id AS "departmentId", department_name AS "departmentName", code
@@ -93,8 +67,6 @@ async function load() {
            approval_override_on_breach AS "approvalOverrideOnBreach"
     FROM sales_policies ORDER BY policy_id`));
 
-  // Invoices are rebuilt into the exact SAP OData shape sapService expects,
-  // keyed by invoice number, with line items nested under `lineItems`.
   const invRows = await db.many(`
     SELECT invoice_number, to_char(invoice_date, 'YYYY-MM-DD') AS invoice_date,
            sold_to_party, payment_terms, net_amount, currency
@@ -141,9 +113,6 @@ async function load() {
 
 function isLoaded() { return loaded; }
 
-// ─── LOOKUP HELPERS ───────────────────────────────────────────────────────
-// All synchronous — they read the in-memory cache.
-
 function findCustomer(customerId) {
   return customers.find((c) => c.customerId === customerId) || null;
 }
@@ -178,10 +147,6 @@ function findRole(roleId) {
   return roles.find((r) => r.roleId === roleId) || null;
 }
 
-/**
- * Find the applicable Sales Policy for a complaint at Stage 1.
- * Matches on businessLine + customer segment. Returns best match.
- */
 function findApplicablePolicy(businessLine, customerSegment) {
   return salesPolicies.find(
     (p) =>
@@ -190,10 +155,6 @@ function findApplicablePolicy(businessLine, customerSegment) {
   ) || null;
 }
 
-/**
- * Check policy compliance for a given settlement value and invoice date.
- * Returns { compliant, flag, clauseBreached }
- */
 function checkPolicyCompliance(policy, invoiceDate, settlementValue, invoiceValue) {
   if (!policy) return { compliant: true, flag: "No Policy Found", clauseBreached: null };
 

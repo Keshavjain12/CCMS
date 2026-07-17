@@ -1,9 +1,3 @@
-// ============================================================
-// ROUTER — tiny hash router
-// Routes are registered as [pattern, handler]. Patterns use
-// :params, e.g. "#/complaints/:no". Guards redirect to login
-// when not authenticated.
-// ============================================================
 window.CCMS = window.CCMS || {};
 
 CCMS.router = (function () {
@@ -46,7 +40,7 @@ CCMS.router = (function () {
         return;
       }
     }
-    // No match → 404 inside the app shell
+
     CCMS.shell.render("app", (mount) => {
       mount.appendChild(CCMS.ui.el("div.card", {}, [
         CCMS.ui.el("h2", { text: "404 — Page not found" }),

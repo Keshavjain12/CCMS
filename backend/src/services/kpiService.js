@@ -1,22 +1,22 @@
-// =========================================================================
-// KPI DASHBOARD SERVICE  —  Orient Paper & Mill CCMS
-// Section 12.4 — KPI Dashboard
-//
-// Calculates all live KPIs from the in-memory complaint store.
-// No caching — every GET /api/kpi returns fresh numbers.
-//
-// KPIs provided:
-//  1. Complaint Volume        — total, open, closed, today
-//  2. Status Distribution     — count per status (pipeline view)
-//  3. Average Resolution Time — overall + per business line
-//  4. Stage Cycle Times       — avg days spent per stage (from audit log)
-//  5. Settlement Analytics    — total value, avg, by business line, by month
-//  6. SLA Compliance Rate     — % complaints resolved within total SLA window
-//  7. Rejection / Clarify Rate — how often complaints get sent back
-//  8. Repeat Complaint Flag   — same customer + product + type within 90 days
-//  9. Top Customers by Volume — which customers raise the most complaints
-// 10. SAP Integration Health  — credit note issuance rate
-// =========================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 const { complaintStore } = require("../data/transactionalStore");
 const audit              = require("../data/auditLog");
@@ -24,8 +24,9 @@ const sla                = require("./slaEngine");
 const md                 = require("../data/masterData");
 const workflow           = require("./workflowService");
 const visibility         = require("./visibility");
+const sap                = require("./sapService");
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+
 function daysBetween(d1, d2) {
   return (new Date(d2) - new Date(d1)) / (1000 * 60 * 60 * 24);
 }
@@ -52,21 +53,34 @@ function monthKey(isoDate) {
 const TERMINAL = new Set(["Closed", "Auto_Closed"]);
 const NEGATIVE_ACTIONS = new Set(["Reject", "Clarify"]);
 
-// ── Main KPI Calculator ───────────────────────────────────────────────────
-/**
- * @param {object} user - the authenticated caller. REQUIRED: every figure
- *   below is derived from complaint data, so the same read scoping the
- *   complaints list applies must apply here too. Without it the dashboard
- *   would tell a junior role how many complaints exist company-wide and
- *   what they're worth — exactly what Section 12.3 forbids, and precisely
- *   the leak that made "4 total" show against a 3-row list.
- */
+
+
+
+
+
+
+const KPI_CACHE_MS = parseInt(process.env.KPI_CACHE_MS || "10000", 10);
+const kpiCache = new Map();
+
 async function computeKPIs(user) {
+  const key = user && user.userId;
+  if (KPI_CACHE_MS > 0 && key) {
+    const hit = kpiCache.get(key);
+    if (hit && Date.now() - hit.at < KPI_CACHE_MS) return hit.data;
+  }
+  const data = await computeFresh(user);
+  if (KPI_CACHE_MS > 0 && key) kpiCache.set(key, { at: Date.now(), data });
+  return data;
+}
+
+
+
+async function computeFresh(user) {
   const everything = await complaintStore.getAll();
   const all        = await visibility.filterVisible(user, everything);
 
-  // Scope the audit trail to the complaints this user may see, so derived
-  // action counts can't reveal activity on hidden complaints either.
+
+
   const visibleNos = new Set(all.map((c) => c.complaintNo));
   const auditEvery = await audit.getAll();
   const auditAll   = auditEvery.filter((e) => !e.complaintNo || visibleNos.has(e.complaintNo));
@@ -76,7 +90,7 @@ async function computeKPIs(user) {
   );
   const now        = new Date().toISOString();
 
-  // ── 1. Complaint Volume ────────────────────────────────────────────────
+
   const total       = all.length;
   const open        = all.filter((c) => !TERMINAL.has(c.status)).length;
   const closed      = all.filter((c) => c.status === "Closed").length;
@@ -84,7 +98,7 @@ async function computeKPIs(user) {
   const today       = all.filter((c) => isToday(c.createdAt)).length;
   const thisMonth   = all.filter((c) => isThisMonth(c.createdAt)).length;
 
-  // ── 2. Status Distribution ─────────────────────────────────────────────
+
   const statusDist = {};
   for (const c of all) {
     statusDist[c.status] = (statusDist[c.status] || 0) + 1;
@@ -93,7 +107,7 @@ async function computeKPIs(user) {
     .map(([status, count]) => ({ status, count, pct: total ? +((count / total) * 100).toFixed(1) : 0 }))
     .sort((a, b) => b.count - a.count);
 
-  // ── 3. Average Resolution Time ─────────────────────────────────────────
+
   const resolvedComplaints = all.filter((c) => c.status === "Closed" && c.closedAt);
   const resolutionTimes    = resolvedComplaints.map((c) => daysBetween(c.createdAt, c.closedAt));
 
@@ -104,7 +118,7 @@ async function computeKPIs(user) {
   const minResolutionDays = resolutionTimes.length ? +Math.min(...resolutionTimes).toFixed(1) : null;
   const maxResolutionDays = resolutionTimes.length ? +Math.max(...resolutionTimes).toFixed(1) : null;
 
-  // By business line
+
   const byLine = {};
   for (const c of resolvedComplaints) {
     const line = c.businessLine || "Unknown";
@@ -118,8 +132,8 @@ async function computeKPIs(user) {
     ])
   );
 
-  // ── 4. Stage Cycle Times (from audit log) ──────────────────────────────
-  // Group audit entries by complaintNo, then for each transition measure time
+
+
   const stageTimesMap = {};
   const auditByComplaint = {};
   for (const entry of auditAll) {
@@ -147,12 +161,12 @@ async function computeKPIs(user) {
     ])
   );
 
-  // ── 5. Settlement Analytics ────────────────────────────────────────────
+
   const withSettlement = all.filter((c) => c.settlementValue > 0);
   const totalSettlement = withSettlement.reduce((s, c) => s + c.settlementValue, 0);
   const avgSettlement   = withSettlement.length ? +(totalSettlement / withSettlement.length).toFixed(0) : 0;
 
-  // By business line
+
   const settlByLine = {};
   for (const c of withSettlement) {
     const line = c.businessLine || "Unknown";
@@ -166,7 +180,7 @@ async function computeKPIs(user) {
     ])
   );
 
-  // By month
+
   const settlByMonth = {};
   for (const c of withSettlement) {
     const mk = monthKey(c.createdAt);
@@ -178,14 +192,14 @@ async function computeKPIs(user) {
     Object.entries(settlByMonth).sort(([a], [b]) => a.localeCompare(b))
   );
 
-  // MD Approval triggered (high-value / policy breach)
-  // Derived from the same workflow gate logic used by the engine — these flags
-  // are not stored on the complaint, so compute them live here.
+
+
+
   const mdApprovalTriggered = all.filter((c) => workflow.requiresMdApproval(c)).length;
   const visitTriggered       = all.filter((c) => workflow.requiresVisit(c)).length;
 
-  // ── 6. SLA Compliance Rate ─────────────────────────────────────────────
-  const totalSLADays = parseInt(process.env.STAGE_SLA_DAYS || "3") * 11; // 11 stages × default SLA
+
+  const totalSLADays = parseInt(process.env.STAGE_SLA_DAYS || "3") * 11;
   const withinSLA    = resolvedComplaints.filter((c) => daysBetween(c.createdAt, c.closedAt) <= totalSLADays).length;
   const slaComplianceRate = resolvedComplaints.length
     ? +((withinSLA / resolvedComplaints.length) * 100).toFixed(1)
@@ -194,7 +208,7 @@ async function computeKPIs(user) {
   const totalBreaches     = breaches.length;
   const uniqueBreached    = new Set(breaches.map((b) => b.complaintNo)).size;
 
-  // ── 7. Rejection & Clarify Rate ───────────────────────────────────────
+
   const rejectEvents  = auditAll.filter((e) => e.action === "Reject").length;
   const clarifyEvents = auditAll.filter((e) => e.action === "Clarify").length;
   const totalActions  = auditAll.filter((e) => e.actorType === "User").length;
@@ -202,28 +216,38 @@ async function computeKPIs(user) {
   const rejectionRate = totalActions ? +((rejectEvents / totalActions) * 100).toFixed(1) : 0;
   const clarifyRate   = totalActions ? +((clarifyEvents / totalActions) * 100).toFixed(1) : 0;
 
-  // ── 8. Repeat Complaint Detection ─────────────────────────────────────
+
+
+
+
+
+
   const REPEAT_WINDOW_DAYS = 90;
   const repeatFlags = [];
-  const sorted = [...all].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-
-  for (let i = 0; i < sorted.length; i++) {
-    for (let j = i + 1; j < sorted.length; j++) {
-      const a = sorted[i]; const b = sorted[j];
-      if (daysBetween(a.createdAt, b.createdAt) > REPEAT_WINDOW_DAYS) break;
-      if (a.customerId === b.customerId) {
+  const byCustomerForRepeat = {};
+  for (const c of all) {
+    const key = c.customerId || "Unknown";
+    (byCustomerForRepeat[key] = byCustomerForRepeat[key] || []).push(c);
+  }
+  for (const [custId, list] of Object.entries(byCustomerForRepeat)) {
+    if (list.length < 2) continue;
+    const sorted = list.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        const gap = daysBetween(sorted[i].createdAt, sorted[j].createdAt);
+        if (gap > REPEAT_WINDOW_DAYS) break;
         repeatFlags.push({
-          originalComplaint: a.complaintNo,
-          repeatComplaint:   b.complaintNo,
-          customerId:        a.customerId,
-          daysBetween:       +daysBetween(a.createdAt, b.createdAt).toFixed(1),
+          originalComplaint: sorted[i].complaintNo,
+          repeatComplaint:   sorted[j].complaintNo,
+          customerId:        custId,
+          daysBetween:       +gap.toFixed(1),
           note:              `Same customer filed again within ${REPEAT_WINDOW_DAYS} days — verify CAPA effectiveness`,
         });
       }
     }
   }
 
-  // ── 9. Top Customers by Volume ─────────────────────────────────────────
+
   const custVolume = {};
   for (const c of all) {
     const key = c.customerId || "Unknown";
@@ -239,12 +263,12 @@ async function computeKPIs(user) {
       return { ...c, customerName: customer ? customer.name : c.customerId };
     });
 
-  // ── 10. SAP Integration Health ─────────────────────────────────────────
+
   const withCreditNote    = all.filter((c) => c.creditNoteNumber).length;
   const creditNoteRate    = closed ? +((withCreditNote / closed) * 100).toFixed(1) : null;
   const pendingSAPValidation = all.filter((c) => c.sapValidationPending).length;
 
-  // ── Final KPI object ───────────────────────────────────────────────────
+
   return {
     generatedAt: now,
     summary: {
@@ -285,6 +309,7 @@ async function computeKPIs(user) {
     },
     topCustomers,
     sapHealth: {
+      mode:                   sap.USE_MOCK ? "MOCK" : "LIVE SAP",
       creditNoteIssuanceRate: creditNoteRate,
       closedWithCreditNote:   withCreditNote,
       totalClosed:            closed,

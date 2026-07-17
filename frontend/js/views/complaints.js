@@ -1,7 +1,3 @@
-// ============================================================
-// VIEW: Complaints list
-// Filter by status / business line / "only mine to action".
-// ============================================================
 window.CCMS = window.CCMS || {};
 CCMS.views = CCMS.views || {};
 
@@ -20,7 +16,6 @@ CCMS.views.complaints = async function (mount) {
   }
   mount.appendChild(head);
 
-  // Filters
   const statusSel = el("select.input", {}, [el("option", { value: "", text: "All statuses" })]);
   [
     "Logged", "TS_Review", "QC_Review", "Sample_Awaited", "CAPA_Pending",

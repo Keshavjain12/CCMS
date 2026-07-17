@@ -1,30 +1,3 @@
-// =========================================================================
-// SAP INTEGRATION SERVICE  —  CCMS
-// =========================================================================
-// Source: Section 11 of the CCMS Data Classification Report & Addendum.
-//
-// 6 Integration Touchpoints (Section 11.1):
-//   1. Invoice lookup (real-time, SAP → CCMS)          → getInvoice()
-//   2. Customer/Distributor master (nightly batch)      → getCustomerMaster()
-//   3. Product/SKU master (nightly batch)               → getProductMaster()
-//   4. Sales Policy / pricing conditions (batch)        → getSalesPolicies()
-//   5. Credit Note creation request (real-time push)    → pushCreditNote()
-//   6. Credit Note number write-back (real-time)        ← response from #5
-//
-// Architecture (Section 11.2):
-//   - CCMS never calls SAP tables directly — all calls go through this file.
-//   - Real-time calls: invoice lookup + credit note only (user is waiting).
-//   - Batch calls: customer/product/sales policy (cached locally).
-//   - CSRF token fetched before every SAP POST.
-//   - Every SAP call is logged to the Audit Log with Actor="System".
-//   - If real-time invoice lookup fails, complaint can still be created with
-//     "Pending SAP Validation" flag (fallback per Section 11.2).
-//
-// TO SWITCH FROM MOCK TO LIVE:
-//   Set SAP_USE_MOCK=false in .env and fill SAP_BASE_URL/USERNAME/PASSWORD.
-//   Zero code changes anywhere else.
-// =========================================================================
-
 const fetch = require("node-fetch");
 require("dotenv").config();
 const masterData = require("../data/masterData");
@@ -33,7 +6,6 @@ const USE_MOCK = process.env.SAP_USE_MOCK !== "false";
 const BASE_URL = process.env.SAP_BASE_URL;
 let mockCreditNoteCounter = 5000001;
 
-// ─── AUTH HELPER ─────────────────────────────────────────────────────────
 function authHeader() {
   const creds = Buffer.from(
     `${process.env.SAP_USERNAME}:${process.env.SAP_PASSWORD}`
@@ -45,7 +17,6 @@ function authHeader() {
   };
 }
 
-// ─── CSRF TOKEN (required for all SAP POST/PATCH/DELETE) ─────────────────
 async function fetchCsrfToken(serviceUrl) {
   const res = await fetch(serviceUrl, {
     headers: { ...authHeader(), "X-CSRF-Token": "Fetch" },
@@ -55,33 +26,22 @@ async function fetchCsrfToken(serviceUrl) {
   return token;
 }
 
-// =========================================================================
-// 1. INVOICE LOOKUP  —  Real-time  —  SAP → CCMS
-// =========================================================================
-/**
- * Fetch invoice (billing document) from SAP at Stage 1 complaint creation.
- * Returns header + line items.
- * On failure in real SAP: throws error; caller handles fallback.
- */
 async function getInvoice(invoiceNumber) {
   if (USE_MOCK) {
     const inv = masterData.invoices[invoiceNumber];
     if (!inv) throw new Error(`Invoice ${invoiceNumber} not found in SAP`);
-    // Simulate slight delay of real SAP call
+
     return JSON.parse(JSON.stringify(inv));
   }
 
-  // Real SAP — API_BILLING_DOCUMENT_SRV
   const serviceBase = `${BASE_URL}/${process.env.SAP_BILLING_SERVICE}`;
 
-  // Header
   const hdrUrl = `${serviceBase}/A_BillingDocument('${invoiceNumber}')?$format=json`;
   const hdrRes = await fetch(hdrUrl, { headers: authHeader() });
   if (!hdrRes.ok) throw new Error(`SAP Invoice header fetch failed: HTTP ${hdrRes.status}`);
   const hdrJson = await hdrRes.json();
   const header = hdrJson.d;
 
-  // Line Items
   const itmUrl = `${serviceBase}/A_BillingDocument('${invoiceNumber}')/to_Item?$format=json`;
   const itmRes = await fetch(itmUrl, { headers: authHeader() });
   if (!itmRes.ok) throw new Error(`SAP Invoice items fetch failed: HTTP ${itmRes.status}`);
@@ -91,13 +51,6 @@ async function getInvoice(invoiceNumber) {
   return header;
 }
 
-// =========================================================================
-// 2. CUSTOMER MASTER  —  Batch / On-demand  —  SAP → CCMS
-// =========================================================================
-/**
- * Fetch customer/distributor master from SAP Business Partner.
- * In production called nightly; also available on-demand for cache-miss.
- */
 async function getCustomerMaster(sapBusinessPartnerId) {
   if (USE_MOCK) {
     const cust = masterData.customers.find((c) => c.sapBusinessPartner === sapBusinessPartnerId);
@@ -122,13 +75,6 @@ async function getCustomerMaster(sapBusinessPartnerId) {
   return json.d;
 }
 
-// =========================================================================
-// 3. PRODUCT / SKU MASTER  —  Batch  —  SAP → CCMS
-// =========================================================================
-/**
- * Fetch product (material) master from SAP.
- * Nightly batch; also on-demand for unknown materials encountered at Stage 1.
- */
 async function getProductMaster(sapMaterialNo) {
   if (USE_MOCK) {
     const product = masterData.findProduct(sapMaterialNo);
@@ -149,14 +95,6 @@ async function getProductMaster(sapMaterialNo) {
   return json.d;
 }
 
-// =========================================================================
-// 4. SALES POLICIES  —  Batch  —  SAP → CCMS
-// =========================================================================
-/**
- * Fetch sales/pricing policy conditions from SAP.
- * Maps to SAP pricing condition records.
- * Nightly batch sync + optional on-demand refresh.
- */
 async function getSalesPolicies() {
   if (USE_MOCK) {
     return masterData.salesPolicies.map((p) => ({
@@ -178,18 +116,6 @@ async function getSalesPolicies() {
   return json.d.results;
 }
 
-// =========================================================================
-// 5 + 6. CREDIT NOTE PUSH  —  Real-time  —  CCMS → SAP → CCMS
-// =========================================================================
-/**
- * Create a Credit Memo Request in SAP and get back the Credit Note number.
- * Triggered at Finance_Processing stage (final approval before Closed).
- *
- * Per Section 11.3: this is a synchronous call — the complaint cannot
- * move to Closed without a confirmed Credit Note number from SAP.
- *
- * Real SAP POST requires CSRF token (fetched first, then sent with POST).
- */
 async function pushCreditNote(payload) {
   const {
     complaintNo,
@@ -216,7 +142,6 @@ async function pushCreditNote(payload) {
     };
   }
 
-  // Real SAP — Credit Memo Request via API_SALES_ORDER_SRV
   const serviceUrl = `${BASE_URL}/${process.env.SAP_CREDIT_MEMO_SERVICE}`;
   const csrfToken = await fetchCsrfToken(serviceUrl + "/");
 
@@ -264,12 +189,6 @@ async function pushCreditNote(payload) {
   };
 }
 
-// ─── BATCH SYNC RUNNER ────────────────────────────────────────────────────
-/**
- * Master data batch sync — simulates a nightly job that pulls
- * Customer, Product, and Sales Policy data from SAP into the local cache.
- * In production this would update a database, not in-memory objects.
- */
 async function runMasterDataBatchSync() {
   const results = { timestamp: new Date().toISOString(), synced: {}, errors: {} };
 
@@ -280,7 +199,6 @@ async function runMasterDataBatchSync() {
     results.errors.salesPolicies = e.message;
   }
 
-  // In production: loop through customer/product lists and sync each.
   results.synced.note = USE_MOCK
     ? "MOCK mode — master data already seeded from masterData.js"
     : "Sync complete";

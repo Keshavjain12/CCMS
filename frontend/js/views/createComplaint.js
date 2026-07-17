@@ -1,8 +1,3 @@
-// ============================================================
-// VIEW: Create complaint (Stage 1)
-// Restricted to TS Officer/Head, Sales/KAM, Admin.
-// Fetches the invoice from SAP, then builds line items.
-// ============================================================
 window.CCMS = window.CCMS || {};
 CCMS.views = CCMS.views || {};
 
@@ -23,11 +18,9 @@ CCMS.views.createComplaint = async function (mount) {
     el("div", {}, [el("h1", { text: "New complaint" }), el("p.muted", { text: "Stage 1 — invoice lookup, line items & policy check" })]),
   ]));
 
-  // ── Load complaint types for the dropdowns ──
   let complaintTypes = [];
   try { complaintTypes = (await CCMS.api.get("/api/master-data/complaintTypes")).data || []; } catch (_) {}
 
-  // ── Invoice lookup section ──
   const invInput = el("input.input", { placeholder: "e.g. 90009999" });
   const lookupBtn = el("button.btn.btn-secondary", { text: "Look up in SAP" });
   const invResult = el("div.inv-result");
@@ -36,17 +29,14 @@ CCMS.views.createComplaint = async function (mount) {
   const remarksInput = el("textarea.input", { rows: "2", placeholder: "Customer's description of the issue…" });
 
   const lineItemsHost = el("div.li-builder");
-  const liError = el("div");   // inline validation target for the line-item block
+  const liError = el("div");
   const addLiBtn = el("button.btn.btn-ghost.btn-sm", { text: "+ Add line item", onClick: () => addLineRow() });
 
   const submitBtn = el("button.btn.btn-primary.btn-lg", { text: "Create complaint", onClick: submit });
 
   let invoiceData = null;
-  let sapFallback = false;   // true once a lookup failed — surfaced, not silent
+  let sapFallback = false;
 
-  // ── Inline field validation ─────────────────────────────────────
-  // Errors were toast-only: they appeared away from the field, then vanished
-  // after a few seconds, leaving no indication of which input was wrong.
   function fieldError(input, msg) {
     clearFieldError(input);
     input.classList.add("invalid");
@@ -66,8 +56,6 @@ CCMS.views.createComplaint = async function (mount) {
 
   lookupBtn.addEventListener("click", () => doLookup());
 
-  // Enter in the invoice field should look up — it is the only thing that
-  // field is for, and reaching for the mouse to submit one value is friction.
   invInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); doLookup(); }
   });
@@ -77,9 +65,6 @@ CCMS.views.createComplaint = async function (mount) {
     if (!no) return fieldError(invInput, "Enter an invoice number to look up.");
     clearFieldError(invInput);
 
-    // The lookup is a live call to SAP and can be slow or fall back. It used
-    // to change only the button label, so the state of the fetch — and the
-    // fact that a fallback happened at all — was invisible.
     CCMS.ui.clear(invResult);
     invResult.appendChild(el("div.async-state", {}, [
       el("div.dot-spin", { "aria-hidden": "true" }),
@@ -95,10 +80,7 @@ CCMS.views.createComplaint = async function (mount) {
         toast("Invoice " + no + " loaded — " + ((res.data.lineItems || []).length) + " line item(s).", "success");
       } catch (err) {
         invoiceData = null;
-        // SAP being unreachable is a supported path (Section 11.2), not a dead
-        // end: the complaint can still be filed and the backend flags it
-        // "Pending SAP Validation". Say so plainly instead of showing an error
-        // and leaving the user guessing whether they may continue.
+
         CCMS.ui.clear(invResult);
         invResult.appendChild(CCMS.ui.gate({
           name: "Invoice not validated against SAP",
@@ -191,7 +173,6 @@ CCMS.views.createComplaint = async function (mount) {
     const items = Array.prototype.map.call(lineItemsHost.querySelectorAll(".li-row"), (r) => r._collect())
       .filter((x) => x.complaintTypeId && x.defectiveQty > 0);
 
-    // Validate at the field, not in a toast that floats away from it.
     if (!invInput.value.trim()) return fieldError(invInput, "An invoice number is required.");
     clearFieldError(invInput);
     if (!items.length) {
@@ -204,8 +185,6 @@ CCMS.views.createComplaint = async function (mount) {
     }
     CCMS.ui.clear(liError);
 
-    // runAsync spins the button and blocks a second click, so a slow SAP call
-    // can't be turned into two complaints by an impatient double-click.
     return CCMS.ui.runAsync(submitBtn, async () => {
       try {
         const res = await CCMS.api.post("/api/complaints", {
@@ -217,8 +196,7 @@ CCMS.views.createComplaint = async function (mount) {
         });
         const cno = res.complaint && res.complaint.complaintNo;
         toast("Created " + cno, "success");
-        // A policy breach is not an error — it is a real outcome the workflow
-        // routes on (it forces MD approval). Warn, don't cry failure.
+
         if (res.policyAlert) toast("Policy breach flagged: " + res.policyAlert.clauseBreached + " — MD approval will be required.", "info");
         if (res.complaint && res.complaint.sapValidationPending) {
           toast("Filed with “Pending SAP Validation” — Finance will verify the invoice.", "info");
@@ -230,9 +208,6 @@ CCMS.views.createComplaint = async function (mount) {
     });
   }
 
-  // Required fields are marked, and optional ones say so. The form previously
-  // marked neither, so which fields would block submission was only learnable
-  // by submitting.
   function required(text) {
     return el("span", {}, [text, el("span.req", { text: "*", "aria-hidden": "true" })]);
   }

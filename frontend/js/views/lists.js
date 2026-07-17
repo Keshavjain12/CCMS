@@ -1,14 +1,14 @@
-// ============================================================
-// VIEWS: Notifications · SLA breaches · Global audit log
-// (available to every authenticated role)
-// ============================================================
+
+
+
+
 window.CCMS = window.CCMS || {};
 CCMS.views = CCMS.views || {};
 
-// These three views expose company-wide data. Even though the nav hides them
-// from non-privileged roles, a user could still type the hash route directly —
-// so each view re-checks and refuses to even call the API. (The backend must
-// independently enforce this and return 403; this guard is UX, not security.)
+
+
+
+
 function globalViewGuard(mount, title) {
   const user = CCMS.auth.currentUser() || {};
   if (CCMS.roles.canViewGlobal(user.roleId)) return true;
@@ -20,7 +20,7 @@ function globalViewGuard(mount, title) {
   return false;
 }
 
-// ── Notifications ──────────────────────────────────────────
+
 CCMS.views.notifications = async function (mount) {
   if (!globalViewGuard(mount, "Notifications")) return;
   const { el, dateFmt } = CCMS.ui;
@@ -54,7 +54,7 @@ CCMS.views.notifications = async function (mount) {
   function fmtTo(to) { return Array.isArray(to) ? to.join(", ") : (to || "—"); }
 };
 
-// ── SLA breaches ───────────────────────────────────────────
+
 CCMS.views.sla = async function (mount) {
   if (!globalViewGuard(mount, "SLA breaches")) return;
   const { el, dateFmt } = CCMS.ui;
@@ -81,11 +81,17 @@ CCMS.views.sla = async function (mount) {
     ])));
     const tb = el("tbody");
     items.forEach((b) => {
+
+
+
+      const kind = String(b.action || b.breachType || b.type || "SLA").replace(/_/g, " ");
+      const age  = b.daysElapsed != null ? b.daysElapsed.toFixed(1) + "d"
+                 : (b.ageDays != null ? b.ageDays + "d" : "—");
       tb.appendChild(CCMS.ui.rowLink("Open " + (b.complaintNo || "complaint"), () => b.complaintNo && CCMS.router.go("#/complaints/" + b.complaintNo), [
         el("td", {}, [el("strong", { text: b.complaintNo || "—" })]),
         el("td", {}, [CCMS.ui.statusBadge(b.status)]),
-        el("td", {}, [CCMS.ui.pill(b.breachType || b.type || "SLA", "pill-danger")]),
-        el("td", { text: (b.ageDays != null ? b.ageDays + "d" : "—") }),
+        el("td", {}, [CCMS.ui.pill(kind, "pill-danger")]),
+        el("td", { text: age }),
         el("td", { text: dateFmt(b.detectedAt || b.at) }),
       ]));
     });
@@ -94,7 +100,7 @@ CCMS.views.sla = async function (mount) {
   } catch (err) { CCMS.ui.clear(card); card.appendChild(CCMS.ui.errorBox(err)); }
 };
 
-// ── Global audit log ───────────────────────────────────────
+
 CCMS.views.audit = async function (mount) {
   if (!globalViewGuard(mount, "Audit log")) return;
   const { el, dateFmt } = CCMS.ui;
@@ -130,9 +136,9 @@ CCMS.views.audit = async function (mount) {
   async function verify() {
     try {
       const res = await CCMS.api.get("/api/audit-log/verify");
-      // Keys per GET /api/audit-log/verify: { totalEntries, valid,
-      // tamperedCount, tampered }. It reported `res.entries`, which the
-      // endpoint does not return, so the count never appeared.
+
+
+
       const ok = res.valid;
       CCMS.ui.toast("Integrity: " + (ok ? "VALID ✓" : "TAMPERED ✗ (" + res.tamperedCount + " altered)")
         + (res.totalEntries != null ? " — " + res.totalEntries + " entries checked" : ""), ok ? "success" : "error");

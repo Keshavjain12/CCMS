@@ -51,13 +51,16 @@ production (`middleware/auth.js`).
 
 ### Logout
 
-`POST /api/auth/logout` clears the cookie server-side — the client can't
-discard a token it never held.
+`POST /api/auth/logout` clears the cookie server-side **and revokes the token**
+by its `jti` (each token carries a unique one): an in-process denylist that
+`authenticate` checks, so a token copied before logout stops working
+immediately rather than staying valid until expiry.
 
-**Limitation:** the JWT stays cryptographically valid until it expires.
-Clearing the cookie removes the browser's copy, not the token's validity. True
-revocation needs a denylist or short-lived tokens plus refresh. Acceptable at
-8h for an internal tool; revisit before anything public.
+**Remaining limitation:** the denylist is process memory, so a server restart
+forgets revocations — a token revoked just before a restart would work again
+until its own expiry (≤ `JWT_EXPIRES`, 8h). Surviving restarts needs
+persistence (e.g. a per-user `token_valid_after` timestamp) or short-lived
+tokens plus refresh. Acceptable at 8h for an internal tool.
 
 ---
 
@@ -145,9 +148,13 @@ Append-only, enforced by the database — not by convention.
 - Actors include `Policy Engine`, `SLA Engine` and `SAP Integration` alongside
   people.
 
-**Limitation:** a database superuser can `ALTER TABLE ... DISABLE TRIGGER`. The
-log is immutable to the *application*, not to whoever owns the database. Real
-tamper-evidence needs a restricted role, or shipping entries off-box.
+**Limitation:** a database superuser or the table *owner* can `ALTER TABLE ...
+DISABLE TRIGGER`. The log is immutable to the *application*, not to whoever owns
+the database. The fix is to run the app under a least-privilege role that
+neither owns the tables nor holds `UPDATE`/`DELETE` on `audit_log`:
+[`db/harden.sql`](../backend/db/harden.sql) creates `ccms_app` for exactly this.
+Point `PGUSER`/`PGPASSWORD` at it in production. (Stronger still: ship entries
+off-box to an append-only sink.)
 
 ---
 
@@ -190,6 +197,6 @@ site issue authenticated calls.
 - [ ] `CORS_ORIGIN` set to the real frontend origin
 - [ ] `SHOW_DEMO_ACCOUNTS=false` and `DEMO_ACCOUNTS=[]` in `frontend/env/config.js`
 - [ ] Seeded demo passwords (`Orient@123`, `Admin@456`) removed or rotated
-- [ ] Postgres user scoped to the `ccms` database, not `postgres` superuser
+- [ ] Run [`db/harden.sql`](../backend/db/harden.sql) and point `PGUSER`/`PGPASSWORD` at the least-privilege `ccms_app` role (not `postgres`) — this is also what makes the audit log tamper-evident
 - [ ] `.env` never committed (already gitignored)
-- [ ] Decide whether 8h tokens without revocation are acceptable
+- [ ] 8h tokens with in-process revocation on logout — decide if that's enough, or add persistent revocation before anything public

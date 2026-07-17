@@ -1,27 +1,5 @@
--- =========================================================================
---  CCMS — Customer Complaint Management System
---  Orient Paper & Mill  ·  PostgreSQL schema
--- =========================================================================
---  Mirrors the entities defined in the CCMS Data Classification Report:
---    Master data      — Section 3, 6.2, 9.1
---    Transactional    — Section 4, 6.3, 7.1
---    Workflow states  — Section 8
---    Audit log        — Section 12.6 (append-only / immutable)
---
---  Conventions
---    · snake_case columns; the data layer aliases them back to camelCase
---      so application objects keep their existing shape.
---    · money is numeric(15,2) — never float.
---    · timestamps are timestamptz, defaulting to now().
---    · enumerated values use CHECK constraints (easier to evolve than
---      native ENUM types, equally strict).
---
---  Run:  psql -U postgres -d ccms -f db/schema.sql
--- =========================================================================
-
 BEGIN;
 
--- Drop in dependency order so the script is re-runnable during development.
 DROP TABLE IF EXISTS audit_log            CASCADE;
 DROP TABLE IF EXISTS credit_notes         CASCADE;
 DROP TABLE IF EXISTS capa_records         CASCADE;
@@ -42,11 +20,6 @@ DROP TABLE IF EXISTS roles                CASCADE;
 DROP TABLE IF EXISTS departments          CASCADE;
 DROP SEQUENCE IF EXISTS complaint_no_seq;
 
--- =========================================================================
---  MASTER DATA
--- =========================================================================
-
--- ── 1. Departments ──────────────────────────────────────────────────────
 CREATE TABLE departments (
     department_id   varchar(10)  PRIMARY KEY,
     department_name varchar(100) NOT NULL,
@@ -54,7 +27,6 @@ CREATE TABLE departments (
 );
 COMMENT ON TABLE departments IS 'Section 3 — TS, QC, Operations, Marketing, MD Office, Finance, Sales.';
 
--- ── 2. Roles ────────────────────────────────────────────────────────────
 CREATE TABLE roles (
     role_id       varchar(10)  PRIMARY KEY,
     role_name     varchar(60)  NOT NULL,
@@ -66,7 +38,6 @@ CREATE TABLE roles (
 );
 COMMENT ON TABLE roles IS 'Section 3 — authority level per stage. department_id is NULL for Admin (R000).';
 
--- ── 3. Users ────────────────────────────────────────────────────────────
 CREATE TABLE users (
     user_id       varchar(10)  PRIMARY KEY,
     name          varchar(100) NOT NULL,
@@ -80,7 +51,6 @@ CREATE TABLE users (
 COMMENT ON COLUMN users.password_hash IS 'bcrypt hash — never store plaintext.';
 CREATE INDEX idx_users_role ON users(role_id);
 
--- ── 4. Customers / Distributors ─────────────────────────────────────────
 CREATE TABLE customers (
     customer_id          varchar(20)  PRIMARY KEY,
     name                 varchar(200) NOT NULL,
@@ -105,7 +75,6 @@ COMMENT ON COLUMN customers.segment IS 'Drives sales-policy matching (see sales_
 COMMENT ON COLUMN customers.is_key_account IS 'Triggers the mandatory customer-visit gate regardless of settlement value.';
 CREATE INDEX idx_customers_segment ON customers(segment);
 
--- ── 5. Products / SKUs ──────────────────────────────────────────────────
 CREATE TABLE products (
     product_id      varchar(10)  PRIMARY KEY,
     product_name    varchar(150) NOT NULL,
@@ -119,7 +88,6 @@ CREATE TABLE products (
 COMMENT ON TABLE products IS 'Section 3 — synced nightly from SAP Material Master (API_PRODUCT_SRV).';
 COMMENT ON COLUMN products.category IS 'Routes the complaint to the correct Product Manager at Stage 5.';
 
--- ── 6. Sample types ─────────────────────────────────────────────────────
 CREATE TABLE sample_types (
     sample_type_id           varchar(10)  PRIMARY KEY,
     sample_type_name         varchar(80)  NOT NULL,
@@ -128,7 +96,6 @@ CREATE TABLE sample_types (
 );
 COMMENT ON TABLE sample_types IS 'Section 6.2 — physical sample categories.';
 
--- ── 7. Complaint types ──────────────────────────────────────────────────
 CREATE TABLE complaint_types (
     type_id                varchar(10)  PRIMARY KEY,
     type_name              varchar(80)  NOT NULL,
@@ -138,7 +105,6 @@ CREATE TABLE complaint_types (
 );
 COMMENT ON COLUMN complaint_types.sample_required IS 'Drives the QC_Review sample gate (Section 8).';
 
--- ── 8. Sales policies ───────────────────────────────────────────────────
 CREATE TABLE sales_policies (
     policy_id                   varchar(10)  PRIMARY KEY,
     policy_name                 varchar(120) NOT NULL,
@@ -157,7 +123,6 @@ CREATE TABLE sales_policies (
 COMMENT ON TABLE sales_policies IS 'Section 9.1 — synced from SAP pricing condition records. Matched on business_line + customer segment.';
 COMMENT ON COLUMN sales_policies.approval_override_on_breach IS 'When true, a policy breach forces MD approval regardless of settlement value.';
 
--- ── 9. Invoices (SAP cache) ─────────────────────────────────────────────
 CREATE TABLE invoices (
     invoice_number varchar(20)   PRIMARY KEY,
     invoice_date   date          NOT NULL,
@@ -181,14 +146,8 @@ CREATE TABLE invoice_line_items (
     PRIMARY KEY (invoice_number, invoice_item_no)
 );
 
--- =========================================================================
---  TRANSACTIONAL DATA
--- =========================================================================
-
--- Complaint numbers survive restarts (the in-memory counter did not).
 CREATE SEQUENCE complaint_no_seq START 1;
 
--- ── 10. Complaints ──────────────────────────────────────────────────────
 CREATE TABLE complaints (
     complaint_no            varchar(20)   PRIMARY KEY
         DEFAULT ('COMP-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('complaint_no_seq')::text, 5, '0')),
@@ -203,14 +162,11 @@ CREATE TABLE complaints (
     prior_status            varchar(30),
     business_line           varchar(20)   CHECK (business_line IN ('Paper','Chemical','Both')),
 
-    -- Invoice snapshot (denormalised on purpose: the complaint must reflect
-    -- the invoice as it stood when filed, even if SAP later changes it).
     invoice_number          varchar(20),
     invoice_date            date,
     invoice_value           numeric(15,2) NOT NULL DEFAULT 0,
     currency                char(3)       NOT NULL DEFAULT 'INR',
 
-    -- Customer snapshot (same rationale).
     customer_id             varchar(20)   REFERENCES customers(customer_id),
     customer_name           varchar(200),
     customer_segment        varchar(40),
@@ -218,17 +174,14 @@ CREATE TABLE complaints (
 
     settlement_value        numeric(15,2) NOT NULL DEFAULT 0 CHECK (settlement_value >= 0),
 
-    -- Sales policy evaluation (Section 9)
     policy_id               varchar(10)   REFERENCES sales_policies(policy_id),
-    -- Values emitted by checkPolicyCompliance() in masterData.js.
+
     policy_flag             varchar(30)   CHECK (policy_flag IN ('Within Policy','Breach','No Policy Found')),
-    -- Deliberately text, not boolean: the route stores a display string
-    -- ('Within Policy' / 'Breach'), which the UI renders as-is.
+
     policy_compliance       varchar(30),
     policy_clause_breached  text,
     policy_forces_md_approval boolean     NOT NULL DEFAULT false,
 
-    -- Gate inputs (Section 8)
     sample_required         boolean       NOT NULL DEFAULT false,
     visit_requested         boolean       NOT NULL DEFAULT false,
 
@@ -236,14 +189,9 @@ CREATE TABLE complaints (
     sap_validation_pending  boolean       NOT NULL DEFAULT false,
     credit_note_number      varchar(30),
 
-    -- Background engine state (Sections 12.2, 12.7). Both engines have to know
-    -- what they have already done to a complaint, and must still know it after
-    -- a restart — otherwise the SLA engine re-sends every escalation and the
-    -- archival engine re-archives every eligible complaint on the next tick.
     sla_breached            boolean       NOT NULL DEFAULT false,
     sla_breached_at         timestamptz,
-    -- Which stage the breach was raised against: a complaint that moves on and
-    -- then goes stale again is a new breach, not the old one.
+
     sla_breached_status     varchar(30),
     archived                boolean       NOT NULL DEFAULT false,
     archived_at             timestamptz,
@@ -252,10 +200,9 @@ CREATE TABLE complaints (
     updated_at              timestamptz   NOT NULL DEFAULT now(),
     closed_at               timestamptz,
 
-    -- A complaint may only carry a closed_at once it is actually terminal.
     CONSTRAINT closed_at_only_when_terminal
         CHECK (closed_at IS NULL OR status IN ('Closed','Auto_Closed')),
-    -- Archival only ever applies to a closed complaint (Section 12.7).
+
     CONSTRAINT archived_only_when_closed
         CHECK (archived = false OR status IN ('Closed','Auto_Closed'))
 );
@@ -267,7 +214,6 @@ CREATE INDEX idx_complaints_customer      ON complaints(customer_id);
 CREATE INDEX idx_complaints_business_line ON complaints(business_line);
 CREATE INDEX idx_complaints_created       ON complaints(created_at DESC);
 
--- ── 11. Complaint line items ────────────────────────────────────────────
 CREATE TABLE complaint_line_items (
     line_item_id       uuid          PRIMARY KEY DEFAULT gen_random_uuid(),
     complaint_no       varchar(20)   NOT NULL REFERENCES complaints(complaint_no) ON DELETE CASCADE,
@@ -279,19 +225,18 @@ CREATE TABLE complaint_line_items (
     unit_price         numeric(15,2) NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
     defective_qty      numeric(12,3) NOT NULL DEFAULT 0 CHECK (defective_qty >= 0),
     uom                varchar(20)   NOT NULL DEFAULT 'Ream',
-    -- The DB owns this invariant so it can never drift from its inputs.
+
     defective_value    numeric(15,2) GENERATED ALWAYS AS (round(defective_qty * unit_price, 2)) STORED,
     complaint_type_id  varchar(10)   REFERENCES complaint_types(type_id),
     complaint_type_name varchar(80),
     sample_required    boolean       NOT NULL DEFAULT false,
     created_at         timestamptz   NOT NULL DEFAULT now(),
-    -- You cannot claim more defective units than were invoiced.
+
     CONSTRAINT defective_not_more_than_invoiced CHECK (defective_qty <= invoice_qty)
 );
 COMMENT ON COLUMN complaint_line_items.defective_value IS 'Generated: unit_price × defective_qty (Section 4).';
 CREATE INDEX idx_line_items_complaint ON complaint_line_items(complaint_no);
 
--- ── 12. Attachments ─────────────────────────────────────────────────────
 CREATE TABLE attachments (
     attachment_id  uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
     complaint_no   varchar(20)  NOT NULL REFERENCES complaints(complaint_no) ON DELETE CASCADE,
@@ -307,7 +252,6 @@ CREATE TABLE attachments (
 COMMENT ON COLUMN attachments.purged IS 'Archival engine flags the file as purged; metadata is retained for audit.';
 CREATE INDEX idx_attachments_complaint ON attachments(complaint_no);
 
--- ── 13. Sample records ──────────────────────────────────────────────────
 CREATE TABLE samples (
     sample_id            uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
     complaint_no         varchar(20)  NOT NULL REFERENCES complaints(complaint_no) ON DELETE CASCADE,
@@ -327,14 +271,13 @@ CREATE TABLE samples (
     disposal_date        date,
     created_at           timestamptz  NOT NULL DEFAULT now(),
     updated_at           timestamptz  NOT NULL DEFAULT now(),
-    -- A sample cannot be marked received without a received date.
+
     CONSTRAINT received_needs_date
         CHECK (sample_status = 'Awaited' OR received_date IS NOT NULL)
 );
 COMMENT ON TABLE samples IS 'Section 6.3 — physical sample lifecycle. QC_Review cannot advance until status is Received or beyond.';
 CREATE INDEX idx_samples_complaint ON samples(complaint_no);
 
--- ── 14. Visit records ───────────────────────────────────────────────────
 CREATE TABLE visits (
     visit_id                uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
     complaint_no            varchar(20)  NOT NULL REFERENCES complaints(complaint_no) ON DELETE CASCADE,
@@ -354,7 +297,6 @@ CREATE TABLE visits (
 COMMENT ON TABLE visits IS 'Section 7.1 — customer visit records.';
 CREATE INDEX idx_visits_complaint ON visits(complaint_no);
 
--- ── 15. CAPA records ────────────────────────────────────────────────────
 CREATE TABLE capa_records (
     capa_id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     complaint_no          varchar(20) NOT NULL REFERENCES complaints(complaint_no) ON DELETE CASCADE,
@@ -369,7 +311,6 @@ CREATE TABLE capa_records (
 COMMENT ON TABLE capa_records IS 'Section 4 — Corrective & Preventive Action, documented by Operations at Stage 4.';
 CREATE INDEX idx_capa_complaint ON capa_records(complaint_no);
 
--- ── 16. Credit notes ────────────────────────────────────────────────────
 CREATE TABLE credit_notes (
     credit_note_id     uuid          PRIMARY KEY DEFAULT gen_random_uuid(),
     complaint_no       varchar(20)   NOT NULL REFERENCES complaints(complaint_no) ON DELETE CASCADE,
@@ -386,9 +327,6 @@ COMMENT ON TABLE credit_notes IS 'Section 11.1 #5/#6 — raised in SAP, number w
 COMMENT ON COLUMN credit_notes.notified_to IS 'JSON array, e.g. ["Marketing Head","KAM","Customer"].';
 CREATE INDEX idx_credit_notes_complaint ON credit_notes(complaint_no);
 
--- =========================================================================
---  AUDIT LOG  —  Section 12.6 (append-only, immutable)
--- =========================================================================
 CREATE TABLE audit_log (
     log_id       bigserial   PRIMARY KEY,
     complaint_no varchar(20),
@@ -407,8 +345,6 @@ COMMENT ON TABLE audit_log IS 'Section 12.6 — append-only. UPDATE and DELETE a
 CREATE INDEX idx_audit_complaint ON audit_log(complaint_no);
 CREATE INDEX idx_audit_timestamp ON audit_log("timestamp" DESC);
 
--- Enforce immutability in the database itself. JS Object.freeze() only
--- protects the running process; this protects the data.
 CREATE OR REPLACE FUNCTION audit_log_is_immutable() RETURNS trigger AS $$
 BEGIN
     RAISE EXCEPTION 'audit_log is append-only (Section 12.6): % is not permitted', TG_OP;
@@ -419,14 +355,10 @@ CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log
     FOR EACH ROW EXECUTE FUNCTION audit_log_is_immutable();
 CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log
     FOR EACH ROW EXECUTE FUNCTION audit_log_is_immutable();
--- Row-level triggers do NOT fire on TRUNCATE, which would otherwise leave a
--- hole big enough to wipe the whole log. This statement-level guard closes it.
+
 CREATE TRIGGER audit_log_no_truncate BEFORE TRUNCATE ON audit_log
     FOR EACH STATEMENT EXECUTE FUNCTION audit_log_is_immutable();
 
--- =========================================================================
---  updated_at maintenance
--- =========================================================================
 CREATE OR REPLACE FUNCTION touch_updated_at() RETURNS trigger AS $$
 BEGIN
     NEW.updated_at = now();

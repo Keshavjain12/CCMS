@@ -1,39 +1,39 @@
-// =========================================================================
-// TRANSACTIONAL DATA STORE  —  CCMS
-// =========================================================================
-// Source: Section 4 (Transactional Data), Section 6.3 (Sample Records),
-//         Section 7.1 (Visit Records), Section 4 (CAPA, Credit Note).
-//
-// Backed by PostgreSQL. Every method is async — await them.
-//
-// The public interface is unchanged from the in-memory version, so callers
-// only needed to add `await`. Columns are snake_case in the database and
-// aliased back to camelCase here, so returned objects keep their old shape.
-//
-// Runtime-only fields (not columns) hydrated on read:
-//   _customer      — from the master-data cache (synchronous, free)
-//   _latestSample  — via LATERAL join, so the QC sample gate is always
-//                    evaluated against current data with no N+1 queries
-// `_priorStatus` IS persisted (prior_status) — the clarification/reject
-// return path depends on it surviving a restart.
-//
-// Entities:
-//   1. Complaints              2. Complaint Line Items   3. Attachments
-//   4. Sample Records          5. Visit Records          6. CAPA Records
-//   7. Credit Notes
-// =========================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 const db = require("../db/pool");
 const masterData = require("./masterData");
 
 const SAMPLE_STATUSES = ["Awaited", "Received", "Under Testing", "Tested", "Disposed"];
 const VISIT_STATUSES  = ["Planned", "Completed", "Cancelled"];
-// Mirrors the visits.outcome CHECK constraint in db/schema.sql — keep in step.
+
 const VISIT_OUTCOMES  = ["Resolved On-Site", "Escalation Confirmed", "No Further Action"];
 
-// ── generic update builder ───────────────────────────────────────────────
-// Only whitelisted keys are written; anything else (e.g. the runtime-only
-// `_latestSample`) is ignored rather than throwing.
+
+
+
 function buildSet(updates, colMap) {
   const sets = [];
   const vals = [];
@@ -46,9 +46,9 @@ function buildSet(updates, colMap) {
   return { sets, vals };
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// 1. COMPLAINTS
-// ──────────────────────────────────────────────────────────────────────────
+
+
+
 const COMPLAINT_COLS = `
     c.complaint_no             AS "complaintNo",
     c.title, c.remarks, c.status,
@@ -83,7 +83,7 @@ const COMPLAINT_COLS = `
     c.closed_at                AS "closedAt",
     ls.sample                  AS "_latestSample"`;
 
-// Latest sample per complaint, as JSON — one join, no N+1.
+
 const LATEST_SAMPLE_JOIN = `
   LEFT JOIN LATERAL (
     SELECT to_jsonb(s2) AS sample FROM (
@@ -113,15 +113,15 @@ const COMPLAINT_UPDATE_COLS = {
   sampleRequired: "sample_required", visitRequested: "visit_requested",
   reportedBy: "reported_by", sapValidationPending: "sap_validation_pending",
   creditNoteNumber: "credit_note_number", closedAt: "closed_at",
-  // Background engine state. Absent from this map, the SLA and archival
-  // engines' writes were accepted and silently discarded — buildSet drops any
-  // key it does not know, so nothing failed loudly.
+
+
+
   slaBreached: "sla_breached", slaBreachedAt: "sla_breached_at",
   slaBreachedStatus: "sla_breached_status",
   archived: "archived", archivedAt: "archived_at",
 };
 
-// Attach the customer record from the master cache (used by the visit gate).
+
 function hydrate(row) {
   if (!row) return null;
   row._customer = row.customerId ? masterData.findCustomer(row.customerId) : null;
@@ -130,8 +130,12 @@ function hydrate(row) {
 }
 
 const complaintStore = {
-  async create(data) {
-    const row = await db.one(
+
+
+
+  async create(data, client) {
+    const q = db.using(client);
+    const row = await q.one(
       `INSERT INTO complaints (
          title, remarks, status, business_line, invoice_number, invoice_date,
          invoice_value, currency, customer_id, customer_name, customer_segment,
@@ -153,7 +157,8 @@ const complaintStore = {
         data.reportedBy || null, data._sapFallback || false,
       ]
     );
-    return this.getByNo(row.complaint_no);
+
+    return this.getByNo(row.complaint_no, client);
   },
 
   async getAll(filters = {}) {
@@ -162,13 +167,13 @@ const complaintStore = {
     if (filters.status)       { vals.push(filters.status);       where.push(`c.status = $${vals.length}`); }
     if (filters.customerId)   { vals.push(filters.customerId);   where.push(`c.customer_id = $${vals.length}`); }
     if (filters.businessLine) { vals.push(filters.businessLine); where.push(`c.business_line = $${vals.length}`); }
-    // Archived complaints are excluded unless asked for. Section 12.7 keeps
-    // them out of live views and KPIs, and defaulting to exclude means a
-    // caller that forgets the filter gets the policy's answer rather than a
-    // quietly wrong one.
-    //   (omitted)      → live records only
-    //   archived: true → the archive
-    //   archived: null → both, ignoring the distinction
+
+
+
+
+
+
+
     if (filters.archived !== null) {
       vals.push(filters.archived === undefined ? false : filters.archived);
       where.push(`c.archived = $${vals.length}`);
@@ -182,8 +187,8 @@ const complaintStore = {
     return rows.map(hydrate);
   },
 
-  async getByNo(complaintNo) {
-    const row = await db.one(
+  async getByNo(complaintNo, client) {
+    const row = await db.using(client).one(
       `SELECT ${COMPLAINT_COLS} FROM complaints c ${LATEST_SAMPLE_JOIN}
        WHERE c.complaint_no = $1`,
       [complaintNo]
@@ -204,9 +209,9 @@ const complaintStore = {
   },
 };
 
-// ──────────────────────────────────────────────────────────────────────────
-// 2. COMPLAINT LINE ITEMS
-// ──────────────────────────────────────────────────────────────────────────
+
+
+
 const LINE_ITEM_COLS = `
     line_item_id        AS "lineItemId",
     complaint_no        AS "complaintNo",
@@ -225,10 +230,11 @@ const LINE_ITEM_COLS = `
     created_at          AS "createdAt"`;
 
 const lineItemStore = {
-  // defective_value is a GENERATED column — the database computes
-  // unit_price * defective_qty, so it can never drift from its inputs.
-  async create(data) {
-    return db.one(
+
+
+
+  async create(data, client) {
+    return db.using(client).one(
       `INSERT INTO complaint_line_items (
          complaint_no, invoice_number, invoice_item_no, sap_material_no,
          product_name, invoice_qty, unit_price, defective_qty, uom,
@@ -254,6 +260,17 @@ const lineItemStore = {
     );
   },
 
+
+
+  async getForComplaints(complaintNos) {
+    if (!complaintNos.length) return [];
+    return db.many(
+      `SELECT ${LINE_ITEM_COLS} FROM complaint_line_items
+       WHERE complaint_no = ANY($1) ORDER BY complaint_no, created_at`,
+      [complaintNos]
+    );
+  },
+
   async getById(lineItemId) {
     return db.one(`SELECT ${LINE_ITEM_COLS} FROM complaint_line_items WHERE line_item_id = $1`, [lineItemId]);
   },
@@ -268,9 +285,9 @@ const lineItemStore = {
   },
 };
 
-// ──────────────────────────────────────────────────────────────────────────
-// 3. COMPLAINT ATTACHMENTS
-// ──────────────────────────────────────────────────────────────────────────
+
+
+
 const ATTACHMENT_COLS = `
     attachment_id  AS "attachmentId",
     complaint_no   AS "complaintNo",
@@ -284,8 +301,9 @@ const ATTACHMENT_COLS = `
     purged_at      AS "purgedAt"`;
 
 const attachmentStore = {
-  async create(data) {
-    return db.one(
+
+  async create(data, client) {
+    return db.using(client).one(
       `INSERT INTO attachments (complaint_no, line_item_id, file_reference,
                                 file_type, description, uploaded_by)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING ${ATTACHMENT_COLS}`,
@@ -300,11 +318,20 @@ const attachmentStore = {
     return db.many(`SELECT ${ATTACHMENT_COLS} FROM attachments WHERE complaint_no = $1 ORDER BY uploaded_at`, [complaintNo]);
   },
 
+  async getForComplaints(complaintNos) {
+    if (!complaintNos.length) return [];
+    return db.many(`SELECT ${ATTACHMENT_COLS} FROM attachments WHERE complaint_no = ANY($1) ORDER BY complaint_no, uploaded_at`, [complaintNos]);
+  },
+
   async getForLineItem(lineItemId) {
     return db.many(`SELECT ${ATTACHMENT_COLS} FROM attachments WHERE line_item_id = $1 ORDER BY uploaded_at`, [lineItemId]);
   },
 
-  // Flag the file as purged (metadata retained for audit) — archival engine.
+  async getById(attachmentId) {
+    return db.one(`SELECT ${ATTACHMENT_COLS} FROM attachments WHERE attachment_id = $1`, [attachmentId]);
+  },
+
+
   async markPurged(attachmentId) {
     return db.one(
       `UPDATE attachments SET purged = true, purged_at = now()
@@ -314,9 +341,9 @@ const attachmentStore = {
   },
 };
 
-// ──────────────────────────────────────────────────────────────────────────
-// 4. SAMPLE RECORDS  —  Section 6.3
-// ──────────────────────────────────────────────────────────────────────────
+
+
+
 const SAMPLE_COLS = `
     sample_id             AS "sampleId",
     complaint_no          AS "complaintNo",
@@ -362,6 +389,11 @@ const sampleStore = {
     return db.many(`SELECT ${SAMPLE_COLS} FROM samples WHERE complaint_no = $1 ORDER BY created_at`, [complaintNo]);
   },
 
+  async getForComplaints(complaintNos) {
+    if (!complaintNos.length) return [];
+    return db.many(`SELECT ${SAMPLE_COLS} FROM samples WHERE complaint_no = ANY($1) ORDER BY complaint_no, created_at`, [complaintNos]);
+  },
+
   async getById(sampleId) {
     return db.one(`SELECT ${SAMPLE_COLS} FROM samples WHERE sample_id = $1`, [sampleId]);
   },
@@ -384,9 +416,9 @@ const sampleStore = {
   },
 };
 
-// ──────────────────────────────────────────────────────────────────────────
-// 5. VISIT RECORDS  —  Section 7.1
-// ──────────────────────────────────────────────────────────────────────────
+
+
+
 const VISIT_COLS = `
     visit_id                 AS "visitId",
     complaint_no             AS "complaintNo",
@@ -427,6 +459,11 @@ const visitStore = {
     return db.many(`SELECT ${VISIT_COLS} FROM visits WHERE complaint_no = $1 ORDER BY created_at`, [complaintNo]);
   },
 
+  async getForComplaints(complaintNos) {
+    if (!complaintNos.length) return [];
+    return db.many(`SELECT ${VISIT_COLS} FROM visits WHERE complaint_no = ANY($1) ORDER BY complaint_no, created_at`, [complaintNos]);
+  },
+
   async getById(visitId) {
     return db.one(`SELECT ${VISIT_COLS} FROM visits WHERE visit_id = $1`, [visitId]);
   },
@@ -440,17 +477,16 @@ const visitStore = {
     return this.getById(visitId);
   },
 
-  /** Delete a visit outright. Callers must first establish that it holds no
-   *  recorded work — a visit that happened is cancelled, never removed. */
+
   async remove(visitId) {
     const { rowCount } = await db.query(`DELETE FROM visits WHERE visit_id = $1`, [visitId]);
     return rowCount > 0;
   },
 };
 
-// ──────────────────────────────────────────────────────────────────────────
-// 6. CAPA RECORDS  —  Section 4
-// ──────────────────────────────────────────────────────────────────────────
+
+
+
 const CAPA_COLS = `
     capa_id                AS "capaId",
     complaint_no           AS "complaintNo",
@@ -483,14 +519,19 @@ const capaStore = {
     return db.many(`SELECT ${CAPA_COLS} FROM capa_records WHERE complaint_no = $1 ORDER BY documented_date`, [complaintNo]);
   },
 
+  async getForComplaints(complaintNos) {
+    if (!complaintNos.length) return [];
+    return db.many(`SELECT ${CAPA_COLS} FROM capa_records WHERE complaint_no = ANY($1) ORDER BY complaint_no, documented_date`, [complaintNos]);
+  },
+
   async getById(capaId) {
     return db.one(`SELECT ${CAPA_COLS} FROM capa_records WHERE capa_id = $1`, [capaId]);
   },
 };
 
-// ──────────────────────────────────────────────────────────────────────────
-// 7. CREDIT NOTES  —  Section 4 + SAP touchpoints 5 & 6
-// ──────────────────────────────────────────────────────────────────────────
+
+
+
 const CREDIT_NOTE_COLS = `
     credit_note_id      AS "creditNoteId",
     complaint_no        AS "complaintNo",
@@ -520,6 +561,11 @@ const creditNoteStore = {
 
   async getForComplaint(complaintNo) {
     return db.many(`SELECT ${CREDIT_NOTE_COLS} FROM credit_notes WHERE complaint_no = $1 ORDER BY raised_date`, [complaintNo]);
+  },
+
+  async getForComplaints(complaintNos) {
+    if (!complaintNos.length) return [];
+    return db.many(`SELECT ${CREDIT_NOTE_COLS} FROM credit_notes WHERE complaint_no = ANY($1) ORDER BY complaint_no, raised_date`, [complaintNos]);
   },
 };
 

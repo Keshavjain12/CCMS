@@ -7,39 +7,39 @@ const sap     = require("./services/sapService");
 const { authenticate, requireRoles } = require("./middleware/auth");
 const { paginate } = require("./utils/pagination");
 
-// protect() wraps every handler registered on the app from here on, so an
-// async route that rejects returns 500 via the error handler at the bottom
-// instead of taking the process down. The routers get the same treatment via
-// safeRouter(); this covers the routes defined directly on the app.
+
+
+
+
 const app = require("./utils/asyncRoute").protect(express());
 
-// ── Company-wide oversight views (audit log, notification matrix, SLA board)
-// expose data across every department. They must NOT be readable by every
-// authenticated role — only Admin (R000) and the Managing Director (R009).
-// This mirrors GLOBAL_VIEW_ROLES in the frontend js/roles.js.
+
+
+
+
 const GLOBAL_VIEW_ROLES = ["R000", "R009"];
-// Purely administrative surfaces (archive, rollout, manual engine triggers).
+
 const ADMIN_ONLY = ["R000"];
 
-// Behind a reverse proxy (Nginx, Heroku, Render…) TLS terminates upstream, so
-// Express sees plain HTTP. Trusting the proxy makes req.secure honest, which
-// is what lets `Secure` cookies actually be set in production.
+
+
+
 if (process.env.TRUST_PROXY === "true") app.set("trust proxy", 1);
 
-// ── Section 12.6 — Security headers (HTTPS, XSS, MIME-sniff protection) ──
+
 app.use(helmet({
-  contentSecurityPolicy: false, // relax for API — frontend sets its own CSP
+  contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" },
-  // HSTS tells browsers to only ever reach this host over HTTPS. Enabled in
-  // production only: sending it from a dev server would pin localhost to
-  // HTTPS in your browser and break plain-http development.
+
+
+
   hsts: process.env.NODE_ENV === "production"
     ? { maxAge: 15552000, includeSubDomains: true }
     : false,
 }));
 
-// Refuse to serve auth over plain HTTP in production: the cookie would be
-// sent in clear text and could be lifted off the wire.
+
+
 if (process.env.NODE_ENV === "production") {
   app.use((req, res, next) => {
     if (req.secure || req.headers["x-forwarded-proto"] === "https") return next();
@@ -47,9 +47,9 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-// ── Section 12.6 — Rate limiting (concurrency/performance gate) ──────────
+
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max:      parseInt(process.env.RATE_LIMIT_MAX || "500"),
   standardHeaders: true,
   legacyHeaders:   false,
@@ -57,18 +57,18 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
-// Stricter limiter for auth endpoints (prevent brute-force)
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max:      parseInt(process.env.AUTH_RATE_LIMIT_MAX || "20"),
   message:  { error: "Too many login attempts. Please wait 15 minutes before trying again." },
 });
 
-// CORS — auth now travels in a cookie, so `credentials: true` is required for
-// the browser to send it, and the origin must be an explicit allow-list: the
-// wildcard is illegal with credentials, and reflecting any origin would let
-// any site issue authenticated requests. CORS_ORIGIN is comma-separated;
-// defaults to the local frontend.
+
+
+
+
+
 const corsOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
   .split(",").map((s) => s.trim()).filter(Boolean);
 app.use(cors({
@@ -78,36 +78,36 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "1mb" }));
-// Parses the httpOnly auth cookie into req.cookies for the auth middleware.
+
 app.use(require("cookie-parser")());
 app.use(morgan("dev"));
 
-// ── Public routes (no token needed) ──────────────────────────────────────
+
 app.use("/api/auth", authLimiter, require("./routes/auth"));
 
-// ── Protected routes (Bearer token required for all below) ───────────────
+
 app.use("/api/master-data",  authenticate, require("./routes/masterData"));
 app.use("/api/complaints",   authenticate, require("./routes/complaints"));
 
-// Global audit log — restricted to Admin / MD (company-wide record).
-app.get("/api/audit-log", authenticate, requireRoles(GLOBAL_VIEW_ROLES), async (req, res) => {
+
+app.get("/api/audit-log", authenticate, requireRoles(GLOBAL_VIEW_ROLES), async (req, res, next) => {
   try {
     const entries = await require("./data/auditLog").getAll();
     res.json(paginate(entries, req.query, "entries"));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// ── Notification log (Section 12.1) ──────────────────────────────────────
+
 const notify = require("./services/notificationService");
 
-// ── SLA Engine (Section 12.2) ─────────────────────────────────────────────
+
 const sla = require("./services/slaEngine");
 
-// GET /api/notifications — all notifications sent (most recent first).
-// Restricted to Admin / MD: the global matrix contains the body of every
-// queued email (incl. messages addressed to MD / Finance).
+
+
+
 app.get("/api/notifications", authenticate, requireRoles(GLOBAL_VIEW_ROLES), (req, res) => {
   const all = notify.getAllNotifications();
   const page = paginate(all, req.query, "notifications");
@@ -121,13 +121,13 @@ app.get("/api/notifications", authenticate, requireRoles(GLOBAL_VIEW_ROLES), (re
   });
 });
 
-// GET /api/notifications/:complaintNo — notifications for one complaint
+
 app.get("/api/notifications/:complaintNo", authenticate, (req, res) => {
   const list = notify.getForComplaint(req.params.complaintNo);
   res.json({ complaintNo: req.params.complaintNo, count: list.length, notifications: list });
 });
 
-// ── Root: API Discovery (public) ─────────────────────────────────────────
+
 app.get("/", (req, res) => {
   res.json({
     system:   "Orient Paper & Mill — CCMS",
@@ -137,10 +137,10 @@ app.get("/", (req, res) => {
     rbac: {
       description: "Section 12.3 — Role-Based Access Control enforced on all protected routes",
       loginEndpoint: "POST /api/auth/login  { email, password }",
-      // This route is PUBLIC — no token required. The seeded demo passwords
-      // were listed here, which handed working admin credentials to anyone who
-      // could reach the API. Convenient locally, a free login once deployed.
-      // Dev-only, and pointing at the docs rather than repeating the secret.
+
+
+
+
       ...(process.env.NODE_ENV === "production"
         ? {}
         : { demoCredentials: "Development build — see README.md for the seeded sandbox logins." }),
@@ -194,10 +194,10 @@ app.get("/", (req, res) => {
         "GET  /api/complaints/:no/status-sequence": "Status sequence & gate state — any authenticated user",
       },
     },
-    // Seeded sandbox logins. This route is PUBLIC — anyone who can reach the
-    // API gets whatever is here, no token required — so the passwords are only
-    // ever emitted outside production. Emails/roles are safe to list (they're
-    // in the seed data either way); the passwords are what must not ship.
+
+
+
+
     testUsers: (process.env.NODE_ENV === "production" ? [
       { email: "admin@orientpaper.com",          role: "Admin (full access)" },
       { email: "kiran.joshi@orientpaper.com",    role: "TS Head — approves at TS_Review" },
@@ -218,7 +218,7 @@ app.get("/", (req, res) => {
   });
 });
 
-// GET /api/sla/breaches — all SLA breaches (company-wide board → Admin / MD).
+
 app.get("/api/sla/breaches", authenticate, requireRoles(GLOBAL_VIEW_ROLES), (req, res) => {
   const breaches = sla.getAllBreaches();
   res.json({
@@ -232,21 +232,21 @@ app.get("/api/sla/breaches", authenticate, requireRoles(GLOBAL_VIEW_ROLES), (req
   });
 });
 
-// ── KPI Dashboard (Section 12.4) ─────────────────────────────────────────
+
 const kpi = require("./services/kpiService");
 
-// GET /api/kpi — full live dashboard
-app.get("/api/kpi", authenticate, async (req, res) => {
+
+app.get("/api/kpi", authenticate, async (req, res, next) => {
   try {
     const data = await kpi.computeKPIs(req.user);
     res.json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// GET /api/kpi/summary — lightweight summary only (for quick health check)
-app.get("/api/kpi/summary", authenticate, async (req, res) => {
+
+app.get("/api/kpi/summary", authenticate, async (req, res, next) => {
   try {
     const data = await kpi.computeKPIs(req.user);
     res.json({
@@ -257,102 +257,106 @@ app.get("/api/kpi/summary", authenticate, async (req, res) => {
       topIssue:       data.pipeline[0] || null,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// GET /api/sla/breaches/:complaintNo — SLA breaches for one complaint
+
 app.get("/api/sla/breaches/:complaintNo", authenticate, (req, res) => {
   const breaches = sla.getBreachesForComplaint(req.params.complaintNo);
   res.json({ complaintNo: req.params.complaintNo, count: breaches.length, breaches });
 });
 
-// POST /api/sla/check — manually trigger an SLA check (Admin only).
-app.post("/api/sla/check", authenticate, requireRoles(ADMIN_ONLY), async (req, res) => {
+
+app.post("/api/sla/check", authenticate, requireRoles(ADMIN_ONLY), async (req, res, next) => {
   try {
     const result = await sla.triggerManualCheck();
     res.json({ success: true, ...result });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// ── Archival Engine (Section 12.7) ───────────────────────────────────────
+
 const archive = require("./services/archivalService");
 
-// Data-retention archive is an administrative surface → Admin only.
+
 app.get("/api/archive", authenticate, requireRoles(ADMIN_ONLY), async (req, res) => {
   const complaints = await archive.getAllArchived();
   res.json({ count: complaints.length, complaints });
 });
 
-// GET /api/archive/policy — data retention policy details
+
 app.get("/api/archive/policy", authenticate, requireRoles(ADMIN_ONLY), async (req, res) => {
   res.json(await archive.getPolicy());
 });
 
-// GET /api/archive/log — archival action log
+
 app.get("/api/archive/log", authenticate, requireRoles(ADMIN_ONLY), (req, res) => {
   const log = archive.getAllArchivalLog();
   res.json({ count: log.length, log });
 });
 
-// GET /api/archive/:complaintNo — retrieve one archived complaint
+
 app.get("/api/archive/:complaintNo", authenticate, requireRoles(ADMIN_ONLY), async (req, res) => {
   const c = await archive.getArchivedComplaint(req.params.complaintNo);
   if (!c) return res.status(404).json({ error: "Not found in archive" });
   res.json(c);
 });
 
-// POST /api/archive/run — manually trigger archival check (Admin only).
-app.post("/api/archive/run", authenticate, requireRoles(ADMIN_ONLY), async (req, res) => {
+
+app.post("/api/archive/run", authenticate, requireRoles(ADMIN_ONLY), async (req, res, next) => {
   try {
     const result = await archive.runArchivalCheck();
     res.json({ success: true, ...result });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-// ── Rollout Config (Section 12.8) ─────────────────────────────────────────
+
 const rollout = require("./config/rollout");
 
-// GET /api/rollout — current rollout phase and feature flags (Admin only).
+
 app.get("/api/rollout", authenticate, requireRoles(ADMIN_ONLY), (req, res) => {
   res.json(rollout.getRolloutStatus());
 });
 
-// GET /api/audit-log/verify — verify audit log integrity (Section 12.6).
-// Part of the audit surface → same privileged roles as the log itself.
+
+
 const auditModule = require("./data/auditLog");
-app.get("/api/audit-log/verify", authenticate, requireRoles(GLOBAL_VIEW_ROLES), async (req, res) => {
+app.get("/api/audit-log/verify", authenticate, requireRoles(GLOBAL_VIEW_ROLES), async (req, res, next) => {
   try {
     res.json(await auditModule.verifyIntegrity());
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// ── Error handler (must be last — after every route) ─────────────────────
-// Async handlers are wrapped by safeRouter(), so a rejected promise arrives
-// here as next(err) instead of escaping to the process and killing it. The
-// real message is logged server-side always; it is only echoed to the client
-// outside production, where a driver error could disclose schema internals.
+
+
+
+
+
 app.use((err, req, res, next) => {
   console.error(`[API] ${req.method} ${req.originalUrl} — ${err.message}`);
   if (res.headersSent) return next(err);
+
+
+
+  const inProd = process.env.NODE_ENV === "production";
   res.status(err.status || 500).json({
-    error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    error: err.publicMessage || (inProd ? "Internal server error" : err.message),
   });
 });
 
-// ─── Start ────────────────────────────────────────────────────────────────
+
 const PORT = process.env.PORT || 3000;
 const db = require("./db/pool");
 const masterData = require("./data/masterData");
 
-// Master data is cached in memory, so it must be loaded BEFORE the server
-// accepts traffic — otherwise early requests would see empty lookups and
-// silently mis-route. A DB failure here is fatal by design: better to refuse
-// to start than to serve a half-configured system.
+
+
+
+
 (async () => {
   try {
     const health = await db.healthcheck();
@@ -367,9 +371,9 @@ const masterData = require("./data/masterData");
   }
 
   app.listen(PORT, () => {
-    // Start SLA background engine after server is up
+
     sla.startSlaEngine();
-    // Start Archival engine (Section 12.7)
+
     archive.startArchivalEngine();
     console.log(`\n╔══════════════════════════════════════════════════════╗`);
     console.log(`║  Orient Paper & Mill — CCMS                          ║`);

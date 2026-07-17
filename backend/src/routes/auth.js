@@ -1,16 +1,15 @@
-// =========================================================================
-// AUTH ROUTES  —  /api/auth
-// POST /api/auth/login   — get a JWT token
-// GET  /api/auth/me      — who am I?
-// POST /api/auth/logout  — client-side logout hint
-// =========================================================================
-const express  = require("express");
+
+
+
+
+
+
 const bcrypt   = require("bcryptjs");
 const router   = require("../utils/asyncRoute").safeRouter();
 const md       = require("../data/masterData");
-const { signToken, authenticate, AUTH_COOKIE, cookieOptions } = require("../middleware/auth");
+const { signToken, authenticate, revokeToken, AUTH_COOKIE, cookieOptions } = require("../middleware/auth");
 
-// ── POST /api/auth/login ─────────────────────────────────────────────────
+
 router.post("/login", async (req, res) => {
   const { email, password } = req.body || {};
 
@@ -31,10 +30,10 @@ router.post("/login", async (req, res) => {
   const role = md.findRole(user.roleId) || {};
   const token = signToken(user);
 
-  // The token goes back as an httpOnly cookie ONLY — deliberately not in the
-  // response body. Putting it in the JSON would hand it to page JavaScript
-  // (and therefore to any XSS on the page). The browser will attach the
-  // cookie to subsequent requests on its own.
+
+
+
+
   res.cookie(AUTH_COOKIE, token, cookieOptions());
 
   res.json({
@@ -54,7 +53,7 @@ router.post("/login", async (req, res) => {
   });
 });
 
-// ── GET /api/auth/me ─────────────────────────────────────────────────────
+
 router.get("/me", authenticate, (req, res) => {
   const role = md.findRole(req.user.roleId) || {};
   const dept = md.departments.find((d) => d.departmentId === req.user.department);
@@ -75,14 +74,18 @@ router.get("/me", authenticate, (req, res) => {
   });
 });
 
-// ── POST /api/auth/logout ────────────────────────────────────────────────
-// Clears the auth cookie server-side. The client can no longer "forget" the
-// token itself (it never had it), so logout must happen here.
-//
-// Note: the JWT stays cryptographically valid until it expires — clearing the
-// cookie only removes the browser's copy. Revoking a live token would need a
-// denylist or short-lived tokens plus refresh; out of scope for now.
+
+
+
+
+
 router.post("/logout", (req, res) => {
+  const header = req.headers["authorization"] || "";
+  const token =
+    (req.cookies && req.cookies[AUTH_COOKIE]) ||
+    (header.startsWith("Bearer ") ? header.slice(7) : null);
+  revokeToken(token);
+
   const opts = cookieOptions();
   delete opts.maxAge;
   res.clearCookie(AUTH_COOKIE, opts);

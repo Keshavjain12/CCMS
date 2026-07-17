@@ -1,32 +1,9 @@
-/* ============================================================
-   CCMS Frontend — Orient Paper & Mill
-   ------------------------------------------------------------
-   One design system, defined once here and reused everywhere.
-   Rules below take tokens; they do not invent values.
-
-   Themes restate TOKENS only (see [data-theme="dark"]) — never a component
-   rule — so the two themes cannot drift apart as screens are added.
-
-   The per-role accent is three tokens, not one, and shell.js derives all
-   three from the single hex in roles.js. See js/color.js for why.
-   ============================================================ */
-
 :root {
-  /* Tells the browser which way the page is painted, so it renders scrollbars,
-     form controls and the canvas to match. Without it a dark page keeps light
-     scrollbars, and Chrome may apply its own auto-darkening on top. */
-  color-scheme: light;
+    color-scheme: light;
 
-  /* ── Accent (per role) ──────────────────────────────────────
-     shell.js sets all three on <html> from one hex in roles.js.
-     Defaults here are the house teal, used before a role is known. */
-  --accent: #0d6e6e;            /* brand: fills, borders, bars       */
-  --accent-text: #0b5c5c;       /* readable AS text on --surface     */
-  --accent-contrast: #ffffff;   /* readable ON --accent              */
-  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+    --accent: #0d6e6e;              --accent-text: #0b5c5c;         --accent-contrast: #ffffff;     --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
 
-  /* ── Surfaces & text ────────────────────────────────────── */
-  --bg: #f4f6f8;
+    --bg: #f4f6f8;
   --surface: #ffffff;
   --surface-2: #f8fafc;
   --surface-3: #f1f5f9;
@@ -39,21 +16,16 @@
   --warn: #d97706;
   --ok: #16a34a;
 
-  /* ── Spacing scale (4px base) ───────────────────────────────
-     Replaces the ad-hoc 4/6/7/9/12/14/16/18px paddings that had accreted. */
-  --sp-1: 4px;   --sp-2: 8px;   --sp-3: 12px;  --sp-4: 16px;
+    --sp-1: 4px;   --sp-2: 8px;   --sp-3: 12px;  --sp-4: 16px;
   --sp-5: 20px;  --sp-6: 24px;  --sp-8: 32px;  --sp-10: 40px;
 
-  /* ── Type scale ─────────────────────────────────────────────
-     Was eleven sizes, several 0.5px apart — accretion, not a scale. Seven. */
-  --fs-xs: 12px;    --fs-sm: 13px;   --fs-base: 15px;  --fs-md: 16px;
+    --fs-xs: 12px;    --fs-sm: 13px;   --fs-base: 15px;  --fs-md: 16px;
   --fs-lg: 18px;    --fs-xl: 22px;   --fs-2xl: 28px;
   --lh-tight: 1.25; --lh: 1.5;
 
   --fw-medium: 500; --fw-semi: 600; --fw-bold: 700; --fw-black: 800;
 
-  /* ── Radius & elevation ─────────────────────────────────── */
-  --radius: 12px;
+    --radius: 12px;
   --radius-sm: 8px;
   --radius-xs: 6px;
   --radius-pill: 999px;
@@ -61,23 +33,17 @@
   --shadow: 0 1px 3px rgba(15, 23, 42, .06), 0 8px 24px rgba(15, 23, 42, .05);
   --shadow-lg: 0 12px 32px rgba(15, 23, 42, .14);
 
-  /* ── Motion ─────────────────────────────────────────────────
-     Every transition uses these, so prefers-reduced-motion can switch the
-     whole app off in one place rather than rule by rule. */
-  --dur-fast: .12s;
+    --dur-fast: .12s;
   --dur: .2s;
   --dur-slow: .32s;
   --ease: cubic-bezier(.4, 0, .2, 1);
   --ease-out: cubic-bezier(.16, 1, .3, 1);
 
-  /* Minimum comfortable tap target (WCAG 2.5.5 / mobile). */
-  --tap: 44px;
+    --tap: 44px;
 
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
-  /* Badge / pill / alert palettes. Named by tone and paired bg+fg, so a theme
-     restates each pair once here instead of in every rule that uses it. */
-  --tone-slate-bg:  #f1f5f9;  --tone-slate-fg:  #475569;
+    --tone-slate-bg:  #f1f5f9;  --tone-slate-fg:  #475569;
   --tone-sky-bg:    #e0f2fe;  --tone-sky-fg:    #0369a1;
   --tone-violet-bg: #ede9fe;  --tone-violet-fg: #6d28d9;
   --tone-amber-bg:  #fef3c7;  --tone-amber-fg:  #b45309;
@@ -93,14 +59,6 @@
   --skeleton-sheen: #f4f7fa;
 }
 
-/* ── Dark theme ───────────────────────────────────────────────
-   js/theme.js sets data-theme on <html> before first paint. Only tokens are
-   restated below — no layout or component rule is duplicated, so the themes
-   cannot drift apart as the app grows.
-
-   --accent is deliberately absent: shell.js sets it per role at runtime, so
-   each portal keeps its own accent in both themes.
-   ─────────────────────────────────────────────────────────── */
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0b1220;
@@ -113,17 +71,11 @@
   --skeleton-sheen: #2a3a58;
   --text: #e6edf7;
   --text-2: #9db0c9;
-  /* Light enough to clear 4.5:1 against --surface, not just --bg: --muted
-     carries 12px sidebar and tile labels, which is where it matters most. */
-  --muted: #8194b0;
-  /* Shadows read as depth against dark only when far stronger than the light
-     equivalents — the light values are invisible here. */
-  --shadow: 0 1px 3px rgba(0, 0, 0, .44), 0 8px 24px rgba(0, 0, 0, .38);
+    --muted: #8194b0;
+    --shadow: 0 1px 3px rgba(0, 0, 0, .44), 0 8px 24px rgba(0, 0, 0, .38);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .5);
 
-  /* Tones invert: deep desaturated fill, bright text. The light pastels are
-     near-white and would glare against a dark surface. */
-  --tone-slate-bg:  #273449;  --tone-slate-fg:  #cbd5e1;
+    --tone-slate-bg:  #273449;  --tone-slate-fg:  #cbd5e1;
   --tone-sky-bg:    #10344e;  --tone-sky-fg:    #7dd3fc;
   --tone-violet-bg: #2d2451;  --tone-violet-fg: #c4b5fd;
   --tone-amber-bg:  #3d2f11;  --tone-amber-fg:  #fcd34d;
@@ -136,15 +88,10 @@
   --code-bg: #080d18;  --code-fg: #cbd5e1;
   --overlay: rgba(0, 0, 0, .65);
 
-  /* Brightened for contrast against a dark fill. --danger is NOT restated: it
-     is a button background carrying white text, where the light red is right. */
-  --warn: #fbbf24;
+    --warn: #fbbf24;
   --ok: #4ade80;
 
-  /* --accent-text / --accent-contrast are NOT restated here. shell.js derives
-     them from the role hex against whichever surface the active theme sets,
-     so they are already correct for this theme — see js/color.js. */
-}
+  }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -155,10 +102,7 @@ body {
   font-size: var(--fs-md);
   line-height: var(--lh);
   -webkit-font-smoothing: antialiased;
-  /* Nothing in this app is wider than the screen by design. If a rule ever
-     makes it so, this contains the damage instead of letting the whole page
-     slide sideways — which is what it did at 375px. */
-  overflow-x: hidden;
+    overflow-x: hidden;
 }
 a { color: var(--accent-text); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -169,21 +113,13 @@ h3 { font-size: var(--fs-lg); line-height: var(--lh-tight); margin: 0; letter-sp
 .muted.sm, .sm { font-size: var(--fs-base); }
 .boot { padding: var(--sp-10); text-align: center; color: var(--muted); }
 
-/* ── Focus ────────────────────────────────────────────────────
-   The app had exactly one focus rule (.input) — every button, link, tab and
-   row was invisible to a keyboard user. :focus-visible so the ring appears
-   for keyboard and assistive tech but not on mouse click. */
 :where(a, button, [tabindex], input, select, textarea, summary):focus-visible {
   outline: 2px solid var(--accent-text);
   outline-offset: 2px;
   border-radius: var(--radius-xs);
 }
-/* Any interactive element is a tap target first. */
 :where(button, a.nav-item, .tab, .row-link) { touch-action: manipulation; }
 
-/* ── Reduced motion ───────────────────────────────────────────
-   Honour the OS setting: no count-up, no slide, no pulse. Kept as one block
-   rather than per-rule opt-outs so a new animation cannot forget to comply. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .001ms !important;
@@ -193,7 +129,6 @@ h3 { font-size: var(--fs-lg); line-height: var(--lh-tight); margin: 0; letter-sp
   }
 }
 
-/* ── Buttons ─────────────────────────────────────────────── */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   border: 1px solid transparent; border-radius: var(--radius-sm);
@@ -214,7 +149,6 @@ h3 { font-size: var(--fs-lg); line-height: var(--lh-tight); margin: 0; letter-sp
 .btn-xs { padding: 4px 9px; font-size: 13px; }
 .btn-block { width: 100%; }
 
-/* ── Inputs ──────────────────────────────────────────────── */
 .input {
   width: 100%; padding: 9px 12px; border: 1px solid var(--border);
   border-radius: var(--radius-sm); font-size: 16px; font-family: inherit;
@@ -229,7 +163,6 @@ textarea.input { resize: vertical; }
 .check { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-size: 15px; }
 .form-error { color: var(--alert-fg); background: var(--alert-bg); border: 1px solid var(--alert-border); padding: 9px 12px; border-radius: var(--radius-sm); font-size: 15px; margin-bottom: 12px; }
 
-/* ── Cards & layout primitives ───────────────────────────── */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 18px; margin-bottom: 18px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .card-head h3 { font-size: 16px; text-transform: none; letter-spacing: .01em; }
@@ -239,15 +172,12 @@ textarea.input { resize: vertical; }
 .link.back { display: inline-block; margin-bottom: 4px; }
 .pre, .code { background: var(--code-bg); color: var(--code-fg); padding: 14px; border-radius: var(--radius-sm); font-size: 14px; overflow-x: auto; font-family: "SF Mono", Consolas, monospace; white-space: pre; }
 
-/* ── App layout ──────────────────────────────────────────── */
 .app-layout { min-height: 100vh; display: flex; flex-direction: column; }
 .topbar {
   display: flex; align-items: center; gap: 20px; padding: 0 26px; height: 72px;
   background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20;
 }
 .brand { display: flex; align-items: center; gap: 11px; }
-/* Logo mark. The gradient/glow derive from --accent, which shell.js sets per
-   role — so the mark restyles itself for every portal without extra rules. */
 .brand-mark {
   display: grid; place-items: center;
   width: 40px; height: 40px;
@@ -260,8 +190,7 @@ textarea.input { resize: vertical; }
   font-weight: 800;
   font-size: 14px;
   letter-spacing: .045em;
-  text-indent: .045em;              /* offsets the trailing letter-space so "OPM" sits centred */
-  text-shadow: 0 1px 1.5px rgba(0, 0, 0, .22);
+  text-indent: .045em;                text-shadow: 0 1px 1.5px rgba(0, 0, 0, .22);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, .32),
     inset 0 -1px 0 rgba(0, 0, 0, .14),
@@ -285,7 +214,6 @@ textarea.input { resize: vertical; }
 .portal-chip strong { font-size: 15px; color: var(--accent-text); }
 .topbar-spacer { flex: 1; }
 .user-chip { display: flex; align-items: center; gap: 10px; }
-/* Fixed width so the topbar does not shift when the glyph swaps on toggle. */
 .theme-toggle { width: 34px; padding: 6px 0; font-size: 16px; line-height: 1; }
 .user-avatar { width: 36px; height: 36px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--accent-text); display: grid; place-items: center; font-weight: 700; font-size: 15px; }
 .user-meta { display: flex; flex-direction: column; line-height: 1.2; margin-right: 6px; }
@@ -302,14 +230,8 @@ textarea.input { resize: vertical; }
 .sidebar-foot { margin-top: auto; padding: 12px; display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--border); }
 .sidebar-foot small { font-size: 12px; color: var(--muted); word-break: break-all; }
 
-/* min-width:0 is load-bearing, not tidying. A grid item defaults to
-   min-width:auto, so it refuses to shrink below its widest content — the
-   workflow strip and the data tables then forced this track wider than the
-   viewport and the whole page scrolled sideways. Their own overflow-x:auto
-   could never take effect while the parent kept growing to fit them. */
 .content { padding: var(--sp-6) var(--sp-6); max-width: 1180px; width: 100%; min-width: 0; }
 
-/* ── KPI tiles & bars ────────────────────────────────────── */
 .kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 18px; }
 .kpi-tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-sm); }
 .kpi-tile.accent { background: var(--accent); border-color: var(--accent); }
@@ -326,7 +248,6 @@ textarea.input { resize: vertical; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
 .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); }
 
-/* ── Tables ──────────────────────────────────────────────── */
 .table { width: 100%; border-collapse: collapse; font-size: 15.5px; }
 .table th { text-align: left; font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .table td { padding: 11px 10px; border-bottom: 1px solid var(--surface-2); }
@@ -338,7 +259,6 @@ textarea.input { resize: vertical; }
 .chevron { color: var(--muted); font-size: 20.5px; }
 .dot-flag { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-left: 7px; vertical-align: middle; }
 
-/* ── Badges & pills ──────────────────────────────────────── */
 .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .st-draft { background: var(--tone-slate-bg); color: var(--tone-slate-fg); }
 .st-logged { background: var(--tone-sky-bg); color: var(--tone-sky-fg); }
@@ -356,12 +276,10 @@ textarea.input { resize: vertical; }
 .pill-danger { background: var(--tone-red-bg); color: var(--tone-red-fg); }
 .pill-warn { background: var(--tone-amber-bg); color: var(--tone-amber-fg); }
 
-/* ── Filters ─────────────────────────────────────────────── */
 .filters { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
 .filters .input { width: auto; min-width: 150px; }
 .filters .input[type=search] { min-width: 240px; }
 
-/* ── Complaint detail ────────────────────────────────────── */
 .detail-head { padding-bottom: 8px; }
 .detail-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .detail-title h1 { font-size: 27.5px; }
@@ -397,7 +315,6 @@ textarea.input { resize: vertical; }
 .kv-label { font-weight: 600; color: var(--text-2); min-width: 84px; }
 .kv-value { color: var(--text); }
 
-/* Timeline */
 .timeline { display: flex; flex-direction: column; }
 .tl-item { display: flex; gap: 12px; padding-bottom: 14px; position: relative; }
 .tl-item::before { content: ""; position: absolute; left: 5px; top: 14px; bottom: -4px; width: 2px; background: var(--border); }
@@ -407,20 +324,17 @@ textarea.input { resize: vertical; }
 .tl-meta { font-size: 13px; color: var(--muted); margin-top: 1px; }
 .tl-remarks { font-size: 14.5px; color: var(--text-2); margin-top: 4px; background: var(--surface-2); padding: 6px 10px; border-radius: 6px; }
 
-/* Gates */
 .gate-row { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 8px; padding: 7px 0; font-size: 15px; border-bottom: 1px solid var(--surface-2); }
 .gate-row:last-child { border-bottom: none; }
 .gate-icon { font-size: 16px; text-align: center; }
 .gate-icon.on { color: var(--ok); } .gate-icon.off { color: var(--muted); }
 .gate-state { font-weight: 700; font-size: 14px; color: var(--text-2); }
 
-/* Action panel */
 .action-panel { position: sticky; top: 90px; }
 .action-note { font-size: 15px; color: var(--text-2); background: var(--surface-2); padding: 12px; border-radius: var(--radius-sm); }
 .action-buttons { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .action-hint { font-size: 14px; color: var(--warn); background: var(--hint-bg); border: 1px solid var(--hint-border); padding: 8px 10px; border-radius: 6px; margin-top: 8px; }
 
-/* ── Create complaint ────────────────────────────────────── */
 .inline-form { display: flex; gap: 10px; margin-bottom: 8px; }
 .inline-form .input { flex: 1; }
 .inv-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin-top: 10px; }
@@ -438,20 +352,17 @@ textarea.input { resize: vertical; }
 .li-value { font-weight: 700; color: var(--accent-text); }
 .form-submit { display: flex; justify-content: flex-end; }
 
-/* ── Tabs (admin) ────────────────────────────────────────── */
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 14px; }
 .tab { padding: 8px 14px; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; font-size: 14.5px; font-weight: 600; color: var(--text-2); cursor: pointer; }
 .tab:hover { background: var(--surface-2); }
 .tab.active { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 
-/* ── States ──────────────────────────────────────────────── */
 .loading { display: flex; align-items: center; gap: 10px; color: var(--text-2); padding: 20px; font-size: 15px; }
 .spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .empty { padding: 28px; text-align: center; color: var(--muted); font-size: 15px; }
 .error-box { padding: 14px; background: var(--alert-bg); border: 1px solid var(--alert-border); color: var(--alert-fg); border-radius: var(--radius-sm); font-size: 15px; }
 
-/* ── Login ───────────────────────────────────────────────── */
 .login-mount { min-height: 100vh; }
 .login-screen { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; }
 .login-hero { background: linear-gradient(160deg, #0f766e, #0c4a6e); color: #fff; padding: 56px 52px; display: flex; flex-direction: column; }
@@ -474,7 +385,6 @@ textarea.input { resize: vertical; }
 .demo-btn small { font-size: 12px; color: var(--muted); }
 .demo-hint { font-size: 13px; color: var(--muted); margin-top: 10px; }
 
-/* ── Modal ───────────────────────────────────────────────── */
 .modal-overlay { position: fixed; inset: 0; background: var(--overlay); display: grid; place-items: center; z-index: 100; opacity: 0; transition: opacity .2s; padding: 20px; }
 .modal-overlay.show { opacity: 1; }
 .modal { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; transform: translateY(8px); transition: transform .2s; }
@@ -485,10 +395,6 @@ textarea.input { resize: vertical; }
 .modal-body { padding: 20px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--border); background: var(--surface-2); border-radius: 0 0 var(--radius) var(--radius); }
 
-/* ── Toasts ──────────────────────────────────────────────── */
-/* Bottom-right, not top-right. Toasts sat at top:20px over a 72px sticky
-   topbar with z-index 200 — every success message covered the user chip and
-   the Logout button until it timed out. Nothing important lives bottom-right. */
 .toast-host { position: fixed; bottom: var(--sp-5); right: var(--sp-5); z-index: 200; display: flex; flex-direction: column-reverse; gap: var(--sp-2); pointer-events: none; }
 .toast { background: #1e293b; color: #fff; padding: var(--sp-3) var(--sp-4); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); font-size: var(--fs-base); opacity: 0; transform: translateY(10px) scale(.98); transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out); max-width: 360px; pointer-events: auto; }
 .toast.show { opacity: 1; transform: none; }
@@ -496,7 +402,6 @@ textarea.input { resize: vertical; }
 .toast.error { background: #b91c1c; }
 .toast.info { background: #1e293b; }
 
-/* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 1024px) {
   .kpi-row { grid-template-columns: repeat(3, 1fr); }
   .detail-grid { grid-template-columns: 1fr; }
@@ -516,10 +421,6 @@ textarea.input { resize: vertical; }
   .subnav { top: 0; }
 }
 
-/* ── Phone (≤560px) ───────────────────────────────────────────
-   The old floor was 560px with nothing below it, and the topbar could not
-   wrap — brand + portal chip + user chip + Logout simply pushed the page
-   wider than the screen, so the whole app scrolled sideways at 375px. */
 @media (max-width: 560px) {
   .kpi-row { grid-template-columns: 1fr; }
   .fact-grid { grid-template-columns: 1fr; }
@@ -527,20 +428,18 @@ textarea.input { resize: vertical; }
   .demo-grid { grid-template-columns: 1fr; }
   .content { padding: var(--sp-4) var(--sp-3); }
 
-  /* Let the bar use two rows instead of overflowing. */
   .topbar { height: auto; flex-wrap: wrap; padding: var(--sp-3); gap: var(--sp-3); row-gap: var(--sp-2); position: static; }
   .portal-chip { display: none; }
   .topbar-spacer { display: none; }
   .brand-text small { display: none; }
   .user-chip { margin-left: auto; }
-  .user-meta { display: none; }        /* avatar + Logout carry the identity */
+  .user-meta { display: none; }
   .sidebar { top: 0; padding: var(--sp-2); gap: var(--sp-1); overflow-x: auto; flex-wrap: nowrap; }
   .nav-item { padding: var(--sp-2) var(--sp-3); white-space: nowrap; }
   .nav-section { display: none; }
   .subnav { top: 0; }
   .detail-section { scroll-margin-top: var(--sp-10); }
 
-  /* Comfortable targets — btn-xs was 4px of padding. */
   .btn { min-height: var(--tap); padding: var(--sp-3) var(--sp-4); }
   .btn-sm, .btn-xs { min-height: 38px; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-base); }
   .theme-toggle { min-height: 38px; width: 38px; }
@@ -554,20 +453,9 @@ textarea.input { resize: vertical; }
   h1 { font-size: var(--fs-xl); }
 }
 
-/* Wide data tables scroll inside their own container rather than widening
-   the page. .table-scroll existed and was applied to nothing. */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .table-scroll > .table { min-width: 560px; }
 
-/* ============================================================
-   COMPONENTS  (added in the UX pass)
-   Each exists because the audit found the same thing being
-   re-invented per screen, or missing entirely.
-   ============================================================ */
-
-/* ── Skeletons ────────────────────────────────────────────────
-   Replaces spinner-on-blank-page. A skeleton keeps the layout stable while
-   loading, so the page does not jump when data lands. */
 .skel { background: var(--skeleton); border-radius: var(--radius-xs); position: relative; overflow: hidden; }
 .skel::after {
   content: ""; position: absolute; inset: 0; transform: translateX(-100%);
@@ -581,11 +469,6 @@ textarea.input { resize: vertical; }
 .skel-tile { height: 92px; border-radius: var(--radius); }
 .skel-row { height: 44px; margin-bottom: var(--sp-2); border-radius: var(--radius-xs); }
 
-/* ── Gate block ───────────────────────────────────────────────
-   A blocked gate was rendered as "○ No" in a list, and separately as a line
-   of hint text under the action panel — two implementations, neither of which
-   read as a blocker. This is one component: icon, what is blocked, and the
-   action that unblocks it. */
 .gate { display: flex; gap: var(--sp-3); padding: var(--sp-3); border-radius: var(--radius-sm);
         border: 1px solid var(--border); background: var(--surface-2); margin-bottom: var(--sp-2); }
 .gate-ico { flex: none; width: 22px; height: 22px; border-radius: var(--radius-pill); display: grid;
@@ -594,23 +477,15 @@ textarea.input { resize: vertical; }
 .gate-name { font-weight: var(--fw-semi); font-size: var(--fs-base); }
 .gate-why { font-size: var(--fs-sm); color: var(--text-2); margin-top: 2px; }
 .gate-todo { font-size: var(--fs-sm); margin-top: var(--sp-1); font-weight: var(--fw-medium); }
-/* Blocking: reads as a stop, not as red text. */
 .gate.is-blocked { border-color: var(--alert-border); background: var(--alert-bg); }
 .gate.is-blocked .gate-ico { background: var(--alert-fg); color: var(--surface); }
 .gate.is-blocked .gate-name, .gate.is-blocked .gate-todo { color: var(--alert-fg); }
 .gate.is-blocked .gate-why { color: var(--alert-fg); opacity: .85; }
-/* Satisfied. */
 .gate.is-met .gate-ico { background: var(--tone-green-bg); color: var(--tone-green-fg); }
-/* Applies but not yet reached — informational, not alarming. */
 .gate.is-pending .gate-ico { background: var(--tone-amber-bg); color: var(--tone-amber-fg); }
-/* Not applicable to this complaint. */
 .gate.is-na { opacity: .6; }
 .gate.is-na .gate-ico { background: var(--surface-3); color: var(--muted); }
 
-/* ── Button loading state ─────────────────────────────────────
-   The spinner belongs inside the button that is working, so the control that
-   was pressed is the control that reports progress — and it is disabled while
-   it spins, which is what stops the double-submit. */
 .btn { position: relative; }
 .btn.is-loading { color: transparent !important; pointer-events: none; }
 .btn.is-loading::after {
@@ -622,8 +497,6 @@ textarea.input { resize: vertical; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .btn:active:not(:disabled) { transform: translateY(1px); }
 
-/* ── Sticky section tabs (complaint detail) ───────────────────
-   The detail page was one long scroll through eight cards. */
 .subnav {
   position: sticky; top: 72px; z-index: 10;
   display: flex; gap: var(--sp-1); overflow-x: auto; scrollbar-width: none;
@@ -640,45 +513,33 @@ textarea.input { resize: vertical; }
 .subnav-item:hover { background: var(--surface-2); color: var(--text); }
 .subnav-item.active { background: var(--accent-soft); color: var(--accent-text); font-weight: var(--fw-semi); }
 .subnav-count { font-size: var(--fs-xs); opacity: .7; margin-left: var(--sp-1); }
-/* Anchored sections must clear the sticky bars when jumped to. */
 .detail-section { scroll-margin-top: 132px; }
 
-/* ── Count-up ─────────────────────────────────────────────── */
 .kpi-value { font-variant-numeric: tabular-nums; }
 
-/* ── Money alignment ──────────────────────────────────────────
-   Currency reads as a column only when the digits line up. */
 .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 th.num, td.num { text-align: right; }
 
-/* ── Workflow motion ────────────────────────────────────────── */
 .wf-step.current .wf-dot { animation: wf-pulse 2.4s var(--ease) infinite; }
 @keyframes wf-pulse {
   0%, 100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); }
   50%      { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 8%, transparent); }
 }
 .wf-step .wf-dot { transition: background var(--dur-slow) var(--ease), color var(--dur-slow) var(--ease), border-color var(--dur-slow) var(--ease); }
-/* Applied to a step that just advanced, so a status change is visible rather
-   than the page simply being different after a reload. */
 .wf-step.just-done .wf-dot { animation: wf-done .6s var(--ease-out); }
 @keyframes wf-done { 0% { transform: scale(1); } 45% { transform: scale(1.35); } 100% { transform: scale(1); } }
 
-/* ── View transition ──────────────────────────────────────── */
 .view-enter { animation: view-in var(--dur-slow) var(--ease-out); }
 @keyframes view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-/* ── Inline field validation ─────────────────────────────────
-   Errors belong next to the field, not only in a toast that vanishes. */
 .field-err { color: var(--alert-fg); font-size: var(--fs-sm); margin-top: var(--sp-1); }
 .input.invalid { border-color: var(--alert-fg); }
 .input.invalid:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--alert-fg) 18%, transparent); }
 .req { color: var(--alert-fg); margin-left: 2px; }
 
-/* ── Async inline state (SAP lookup) ─────────────────────── */
 .async-state { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-base); color: var(--text-2); padding: var(--sp-2) 0; }
 .async-state .dot-spin { width: 13px; height: 13px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
 
-/* Toast icon + consequence list (added with the confirm/feedback pass) */
 .toast { display: flex; align-items: center; gap: var(--sp-2); }
 .toast-ico { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
              font-size: var(--fs-xs); font-weight: var(--fw-bold); background: rgba(255,255,255,.2); }
@@ -686,7 +547,6 @@ ul.consequence { margin: var(--sp-2) 0 0; padding-left: var(--sp-5); color: var(
 ul.consequence li { margin-bottom: var(--sp-1); }
 ul.consequence li strong { color: var(--text); }
 
-/* ── Admin screens (replacing the raw JSON dumps) ─────────── */
 .phase-track { display: flex; flex-direction: column; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-4); }
 .phase-step { display: flex; gap: var(--sp-3); padding: var(--sp-3); border-radius: var(--radius-sm); border: 1px solid var(--border); }
 .phase-step.current { border-color: var(--accent); background: var(--accent-soft); }

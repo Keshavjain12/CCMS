@@ -1,25 +1,9 @@
-// =========================================================================
-// NOTIFICATION SERVICE  —  Orient Paper & Mill CCMS
-// Section 12.1 — Notification & Communication Matrix
-//
-// Defines exactly who gets notified at every status transition,
-// by what channel (email), and what the message says.
-//
-// Two modes:
-//   NOTIFY_MODE=mock  → logs to console + in-memory log (no real emails)
-//   NOTIFY_MODE=live  → sends real emails via Nodemailer / Gmail SMTP
-//
-// The in-memory notification log is always written regardless of mode,
-// so you can always call GET /api/notifications to see what was sent.
-// =========================================================================
-
 require("dotenv").config();
 const nodemailer = require("nodemailer");
 const md = require("../data/masterData");
 
 const MODE = process.env.NOTIFY_MODE || "mock";
 
-// ── Nodemailer transporter (only used in live mode) ───────────────────────
 let transporter = null;
 if (MODE === "live") {
   transporter = nodemailer.createTransport({
@@ -28,12 +12,11 @@ if (MODE === "live") {
     secure: false,
     auth: {
       user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,   // Gmail: use App Password, not account password
+      pass: process.env.SMTP_PASS,
     },
   });
 }
 
-// ── In-memory notification log ────────────────────────────────────────────
 const notificationLog = [];
 
 function logNotification(entry) {
@@ -48,14 +31,6 @@ function getForComplaint(complaintNo) {
   return notificationLog.filter((n) => n.complaintNo === complaintNo).reverse();
 }
 
-// ── Communication Matrix ──────────────────────────────────────────────────
-// Per status transition: who gets notified, what subject, what body template.
-// "recipient" keys: nextActor | reporter | allStakeholders | mdOffice | financeTeam | kamSales
-//
-// nextActor     = the person/role who now needs to act
-// reporter      = the customer/distributor who raised the complaint
-// allStakeholders = all actors who touched this complaint so far
-// ─────────────────────────────────────────────────────────────────────────
 const NOTIFICATION_MATRIX = {
   Logged: {
     recipients: ["nextActor"],
@@ -348,7 +323,6 @@ Orient Paper & Mill CCMS
   },
 };
 
-// ── Resolve recipients for a given status + complaint ─────────────────────
 function resolveRecipients(newStatus, complaint, actorUser) {
   const matrix = NOTIFICATION_MATRIX[newStatus];
   if (!matrix) return [];
@@ -357,7 +331,7 @@ function resolveRecipients(newStatus, complaint, actorUser) {
 
   for (const recipientType of matrix.recipients) {
     if (recipientType === "nextActor" && matrix.nextActorRole) {
-      // Find users with the matching role name
+
       const role = md.roles.find((r) => r.roleName === matrix.nextActorRole);
       if (role) {
         md.users
@@ -367,7 +341,7 @@ function resolveRecipients(newStatus, complaint, actorUser) {
     }
 
     if (recipientType === "reporter" && complaint.reportedBy) {
-      // Try to find reporter in users first, then customers
+
       const user = md.findUser(complaint.reportedBy);
       if (user) emails.add(user.email);
       else {
@@ -377,8 +351,7 @@ function resolveRecipients(newStatus, complaint, actorUser) {
     }
 
     if (recipientType === "allStakeholders") {
-      // Notify all users who appeared in the audit trail
-      // For simplicity, notify all active internal users (Marketing Head + KAM always on closure)
+
       ["R008", "R010", "R011"].forEach((roleId) => {
         md.users
           .filter((u) => u.roleId === roleId && u.active)
@@ -387,16 +360,14 @@ function resolveRecipients(newStatus, complaint, actorUser) {
     }
   }
 
-  // Always exclude the actor who just performed the action from the notification
   if (actorUser) emails.delete(actorUser.email);
 
   return [...emails];
 }
 
-// ── Send notification (main entry point) ─────────────────────────────────
 async function sendNotification({ complaint, newStatus, actorUser, remarks }) {
   const matrix = NOTIFICATION_MATRIX[newStatus];
-  if (!matrix) return; // No notification defined for this status
+  if (!matrix) return;
 
   const recipients = resolveRecipients(newStatus, complaint, actorUser);
   if (!recipients.length) return;
@@ -404,7 +375,6 @@ async function sendNotification({ complaint, newStatus, actorUser, remarks }) {
   const subject = matrix.subject(complaint);
   const body    = matrix.body(complaint, actorUser);
 
-  // Always write to in-memory log
   logNotification({
     complaintNo: complaint.complaintNo,
     status:      newStatus,
@@ -417,14 +387,13 @@ async function sendNotification({ complaint, newStatus, actorUser, remarks }) {
   });
 
   if (MODE === "mock") {
-    // Console log for development visibility
+
     console.log(`\n📧 [NOTIFY-MOCK] ${newStatus} — ${complaint.complaintNo}`);
     console.log(`   To     : ${recipients.join(", ")}`);
     console.log(`   Subject: ${subject}\n`);
     return;
   }
 
-  // Live mode — send real emails
   if (!transporter) return;
 
   const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER;

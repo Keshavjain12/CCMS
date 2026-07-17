@@ -1,10 +1,10 @@
-// ============================================================
-// VIEWS: Admin Console  (role R000 only)
-//   • Master data browser (9 entities)
-//   • SAP nightly batch sync trigger
-//   • Rollout phase / feature flags
-//   • Data-retention archive
-// ============================================================
+
+
+
+
+
+
+
 window.CCMS = window.CCMS || {};
 CCMS.views = CCMS.views || {};
 
@@ -21,7 +21,7 @@ function adminGuard(mount) {
   return true;
 }
 
-// ── Master data browser ────────────────────────────────────
+
 CCMS.views.masterData = async function (mount) {
   if (!adminGuard(mount)) return;
   const { el } = CCMS.ui;
@@ -84,7 +84,7 @@ CCMS.views.masterData = async function (mount) {
   }
 };
 
-// ── SAP sync ───────────────────────────────────────────────
+
 CCMS.views.sap = async function (mount) {
   if (!adminGuard(mount)) return;
   const { el, toast } = CCMS.ui;
@@ -109,8 +109,8 @@ CCMS.views.sap = async function (mount) {
       const r = res.result || res;
       toast("SAP sync complete.", "success");
 
-      // Was a JSON dump. The result is really three things: when it ran, what
-      // came back per entity, and whether anything failed.
+
+
       out.appendChild(el("div.card-head", {}, [
         el("h3", { text: "Last sync result" }),
         CCMS.ui.pill(Object.keys(r.errors || {}).length ? "Completed with errors" : "Success",
@@ -128,8 +128,8 @@ CCMS.views.sap = async function (mount) {
         ])));
         out.appendChild(row);
       }
-      // A note (e.g. "MOCK mode — already seeded") is information, not an entity
-      // count, and belongs where it can be read rather than buried in JSON.
+
+
       if (synced.note) out.appendChild(CCMS.ui.gate({ name: "Mock mode", state: "na", why: synced.note }));
 
       const errs = Object.keys(r.errors || {});
@@ -146,7 +146,7 @@ CCMS.views.sap = async function (mount) {
   }
 };
 
-// ── Rollout ────────────────────────────────────────────────
+
 CCMS.views.rollout = async function (mount) {
   if (!adminGuard(mount)) return;
   const { el } = CCMS.ui;
@@ -163,15 +163,15 @@ CCMS.views.rollout = async function (mount) {
     CCMS.ui.clear(card);
     CCMS.ui.clear(flagCard);
 
-    // This screen used to be JSON.stringify in a <pre>. The reader had to
-    // parse a blob to answer the only two questions it exists for: which phase
-    // are we in, and what does that phase allow?
+
+
+
     card.appendChild(el("div.card-head", {}, [
       el("h3", { text: "Rollout status" }),
       CCMS.ui.pill("Phase " + (res.currentPhase || "?"), "pill-ok"),
     ]));
 
-    // Phase stepper — where we are in a three-step plan, not a number.
+
     const phases = res.allPhases || [];
     const stepper = el("div.phase-track");
     phases.forEach((p) => {
@@ -186,7 +186,7 @@ CCMS.views.rollout = async function (mount) {
     });
     card.appendChild(stepper);
 
-    // What the active phase actually admits — the thing the gate enforces.
+
     card.appendChild(el("div.kv-block", {}, [
       el("div.kv", {}, [
         el("span.kv-label", { text: "Business lines" }),
@@ -205,8 +205,8 @@ CCMS.views.rollout = async function (mount) {
     ]));
     if (res.howToAdvance) card.appendChild(el("p.muted.sm", { text: res.howToAdvance }));
 
-    // Feature flags, as on/off rather than a JSON object. These are real now:
-    // the archival engine consults them.
+
+
     flagCard.appendChild(el("div.card-head", {}, [el("h3", { text: "Feature flags" })]));
     const feats = res.features || {};
     const grid = el("div.flag-grid");
@@ -230,7 +230,7 @@ CCMS.views.rollout = async function (mount) {
   }
 };
 
-// ── Archive ────────────────────────────────────────────────
+
 CCMS.views.archive = async function (mount) {
   if (!adminGuard(mount)) return;
   const { el, toast } = CCMS.ui;
@@ -253,8 +253,8 @@ CCMS.views.archive = async function (mount) {
         CCMS.api.get("/api/archive/policy").catch(() => ({})),
         CCMS.api.get("/api/archive").catch(() => ({ complaints: [] })),
       ]);
-      // Was a JSON dump of the policy object. It is a set of rules with a
-      // window, an effect and a reason — which is readable prose, not a blob.
+
+
       CCMS.ui.clear(policyCard);
       policyCard.appendChild(el("div.card-head", {}, [
         el("h3", { text: "Retention policy" }),

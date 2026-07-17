@@ -1,15 +1,14 @@
-// =========================================================================
-// MASTER DATA ROUTES  —  /api/master-data
-// =========================================================================
-const express = require("express");
+
+
+
 const router = require("../utils/asyncRoute").safeRouter();
 const masterData = require("../data/masterData");
 const sap = require("../services/sapService");
 const audit = require("../data/auditLog");
 const { requireRoles } = require("../middleware/auth");
 
-// ── GET /api/master-data/invoice/:invoiceNo ──────────────────────────────
-// Real-time invoice lookup from SAP (or mock).
+
+
 router.get("/invoice/:invoiceNo", async (req, res) => {
   try {
     const invoice = await sap.getInvoice(req.params.invoiceNo);
@@ -19,13 +18,17 @@ router.get("/invoice/:invoiceNo", async (req, res) => {
   }
 });
 
-// ── POST /api/master-data/sap-sync ──────────────────────────────────────
-// Trigger the nightly batch master data sync manually. Admin only — this is a
-// privileged, write-heavy integration action, not something any authenticated
-// user should be able to kick off.
-router.post("/sap-sync", requireRoles(["R000"]), async (req, res) => {
+
+
+
+
+router.post("/sap-sync", requireRoles(["R000"]), async (req, res, next) => {
   try {
     const result = await sap.runMasterDataBatchSync();
+
+
+
+    await masterData.reload();
     await audit.log({
       complaintNo: "SYSTEM",
       action:      "SAP Master Data Batch Sync",
@@ -36,13 +39,13 @@ router.post("/sap-sync", requireRoles(["R000"]), async (req, res) => {
     });
     res.json({ success: true, result });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// ── GET /api/master-data/policy-check ───────────────────────────────────
-// Check if a complaint would comply with the applicable Sales Policy.
-// Query params: businessLine, customerSegment, invoiceDate, settlementValue, invoiceValue
+
+
+
 router.get("/policy-check", async (req, res) => {
   const { businessLine, customerSegment, invoiceDate, settlementValue, invoiceValue } = req.query;
   if (!businessLine || !customerSegment || !invoiceDate || !settlementValue || !invoiceValue) {
@@ -58,16 +61,16 @@ router.get("/policy-check", async (req, res) => {
   res.json({ policy: policy || "No policy found", compliance: result });
 });
 
-// ── GET /api/master-data/:entity ─────────────────────────────────────────
-// Supported entities: customers, users, roles, departments, products,
-//                     complaintTypes, sampleTypes, salesPolicies
-// NOTE: This wildcard route must stay LAST — Express matches routes in
-// registration order, and "/:entity" would otherwise swallow requests meant
-// for /invoice/:invoiceNo, /sap-sync, and /policy-check above.
+
+
+
+
+
+
 router.get("/:entity", async (req, res) => {
   const map = {
     customers:      masterData.customers,
-    // Never expose password hashes over the API (Section 12.6).
+
     users:          masterData.users.map(({ password, ...safe }) => safe),
     roles:          masterData.roles,
     departments:    masterData.departments,

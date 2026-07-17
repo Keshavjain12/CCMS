@@ -1,17 +1,3 @@
-// =========================================================================
-// PAGINATION HELPER  —  CCMS
-// -------------------------------------------------------------------------
-// Bounds large list responses so a single GET can never stream an unbounded
-// payload (Section 12.6 — DoS / performance). Behaviour:
-//   • ?limit & ?offset are honoured when supplied.
-//   • With no ?limit, the full list is returned for backward compatibility,
-//     but always clamped to HARD_MAX so a runaway table can't be dumped whole.
-//   • Always returns metadata (total / count / offset / hasMore) plus the page
-//     under the caller-chosen key.
-// =========================================================================
-
-// Absolute ceiling on how many records one response may carry, regardless of
-// what the client asks for. Configurable via env for large deployments.
 const HARD_MAX = parseInt(process.env.MAX_PAGE_SIZE || "2000", 10);
 
 function paginate(items, query = {}, key = "data") {
@@ -23,8 +9,8 @@ function paginate(items, query = {}, key = "data") {
   if (!Number.isFinite(offset) || offset < 0) offset = 0;
 
   const explicitLimit = Number.isFinite(limit) && limit > 0;
-  if (!explicitLimit) limit = total;      // default: everything (back-compat)…
-  limit = Math.min(limit, HARD_MAX);      // …but never past the safety ceiling.
+  if (!explicitLimit) limit = total;
+  limit = Math.min(limit, HARD_MAX);
 
   const page = list.slice(offset, offset + limit);
 
