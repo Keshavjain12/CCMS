@@ -17,3 +17,8 @@ frontend/env/config.js
 npm-debug.log*
 .DS_Store
 Thumbs.db
+
+# Local presentation & demo-prep artifacts (not part of the application)
+*.pptx
+CCMS-DEMO-GAMEPLAN.txt
+CCMS-Project-Explanation.html
