@@ -285,7 +285,7 @@ CCMS.ui = (function () {
     el, clear, appendChildren,
     money, dateFmt, dateOnly,
     statusBadge, pill, gate, rowLink,
-    toast, errorToast, humanError, openModal, confirm,
+    toast, errorToast, humanError, openModal, confirm, confirmConsequence,
     spinner, empty, errorBox,
     skelLines, skelTiles, skelRows, skelCard,
     runAsync,

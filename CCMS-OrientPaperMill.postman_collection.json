@@ -475,7 +475,7 @@
             "url": "{{base_url}}/api/complaints",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"invoiceNumber\": \"{{invoiceNumber}}\",\n  \"title\": \"Caustic Soda contamination — 5 MT drum batch\",\n  \"remarks\": \"Customer reports visible discoloration and odor in 2 of 5 MT received.\",\n  \"reportedBy\": \"CUST-2000001\",\n  \"lineItemsInput\": [\n    {\n      \"invoiceItemNo\": \"10\",\n      \"sapMaterialNo\": \"MAT-2001\",\n      \"defectiveQty\": 2,\n      \"complaintTypeId\": \"CT06\"\n    }\n  ],\n  \"attachmentsInput\": [\n    { \"fileReference\": \"photo_drum_01.jpg\", \"fileType\": \"image\", \"description\": \"Discoloration close-up\" }\n  ]\n}"
+              "raw": "{\n  \"invoiceNumber\": \"{{invoiceNumber}}\",\n  \"title\": \"Caustic Soda contamination — 5 MT drum batch\",\n  \"remarks\": \"Customer reports visible discoloration and odor in 2 of 5 MT received.\",\n  \"reportedBy\": \"CUST-2000001\",\n  \"lineItemsInput\": [\n    {\n      \"invoiceItemNo\": \"10\",\n      \"sapMaterialNo\": \"MAT-2001\",\n      \"defectiveQty\": 2,\n      \"complaintTypeId\": \"CT06\"\n    }\n  ],\n  \"attachmentsInput\": [\n    { \"fileReference\": \"photo_drum_01.jpg\", \"fileType\": \"photo\", \"description\": \"Discoloration close-up\" }\n  ]\n}"
             }
           }
         },
