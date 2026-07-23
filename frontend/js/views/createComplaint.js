@@ -21,9 +21,59 @@ CCMS.views.createComplaint = async function (mount) {
   let complaintTypes = [];
   try { complaintTypes = (await CCMS.api.get("/api/master-data/complaintTypes")).data || []; } catch (_) {}
 
+  let customers = [];
+  try { customers = (await CCMS.api.get("/api/master-data/customers")).data || []; } catch (_) {}
+  customers.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+
+  const customerSel = el("select.input", {}, [el("option", { value: "", text: "Select a company…" })]
+    .concat(customers.map((c) => el("option", { value: c.customerId, text: c.name + " (" + c.customerId + ")" }))));
+
+  const invoiceSel = el("select.input", { disabled: "true" }, [el("option", { value: "", text: "Select a company first…" })]);
+
   const invInput = el("input.input", { placeholder: "e.g. 90009999" });
   const lookupBtn = el("button.btn.btn-secondary", { text: "Look up in SAP" });
   const invResult = el("div.inv-result");
+
+  customerSel.addEventListener("change", () => {
+    const cid = customerSel.value;
+    CCMS.ui.clear(invResult);
+    CCMS.ui.clear(lineItemsHost);
+    invoiceSel.innerHTML = "";
+    if (!cid) {
+      invoiceSel.setAttribute("disabled", "true");
+      invoiceSel.appendChild(el("option", { value: "", text: "Select a company first…" }));
+      return;
+    }
+    invoiceSel.setAttribute("disabled", "true");
+    invoiceSel.appendChild(el("option", { value: "", text: "Loading invoices…" }));
+    CCMS.api.get("/api/master-data/customer/" + encodeURIComponent(cid) + "/invoices")
+      .then((res) => {
+        const list = res.invoices || [];
+        invoiceSel.innerHTML = "";
+        if (!list.length) {
+          invoiceSel.appendChild(el("option", { value: "", text: "No invoices on file for this company" }));
+          toast("No invoices found for this company. You can still enter an invoice number manually below.", "info");
+          return;
+        }
+        invoiceSel.appendChild(el("option", { value: "", text: "Select an invoice…" }));
+        list.forEach((inv) => invoiceSel.appendChild(el("option", {
+          value: inv.invoiceNumber,
+          text: inv.invoiceNumber + " · " + inv.invoiceDate + " · " + money(inv.netAmount) + " " + (inv.currency || "") + " · " + inv.itemCount + " item(s)",
+        })));
+        invoiceSel.removeAttribute("disabled");
+
+        if (list.length === 1) { invoiceSel.value = list[0].invoiceNumber; doLookup(list[0].invoiceNumber); }
+      })
+      .catch((err) => {
+        invoiceSel.innerHTML = "";
+        invoiceSel.appendChild(el("option", { value: "", text: "Could not load invoices" }));
+        toast(CCMS.ui.humanError(err), "error");
+      });
+  });
+
+  invoiceSel.addEventListener("change", () => {
+    if (invoiceSel.value) doLookup(invoiceSel.value);
+  });
 
   const titleInput = el("input.input", { placeholder: "Short title for the complaint" });
   const remarksInput = el("textarea.input", { rows: "2", placeholder: "Customer's description of the issue…" });
@@ -60,9 +110,10 @@ CCMS.views.createComplaint = async function (mount) {
     if (e.key === "Enter") { e.preventDefault(); doLookup(); }
   });
 
-  function doLookup() {
-    const no = invInput.value.trim();
+  function doLookup(explicitNo) {
+    const no = String(explicitNo || invInput.value || "").trim();
     if (!no) return fieldError(invInput, "Enter an invoice number to look up.");
+    invInput.value = no;
     clearFieldError(invInput);
 
     CCMS.ui.clear(invResult);
@@ -214,9 +265,15 @@ CCMS.views.createComplaint = async function (mount) {
 
   mount.appendChild(el("div.grid-2", {}, [
     el("div.card", {}, [
-      el("div.card-head", {}, [el("h3", { text: "1 · Invoice (SAP lookup)" })]),
-      el("label.field", {}, [required("Invoice number"), el("div.inline-form", {}, [invInput, lookupBtn])]),
-      el("p.muted.sm", { text: "Try 90001234, 90005678, or 90009999 in mock mode." }),
+      el("div.card-head", {}, [el("h3", { text: "1 · Company & invoice" })]),
+      el("label.field", {}, [required("Company"), customerSel]),
+      el("label.field", {}, [required("Invoice"), invoiceSel]),
+      el("p.muted.sm", { text: "Pick a company, then its invoice — line items and unit prices fill in automatically from the invoice." }),
+      el("details.mt", {}, [
+        el("summary.muted.sm", { text: "Or enter an invoice number manually" }),
+        el("label.field", {}, [el("span", { text: "Invoice number" }), el("div.inline-form", {}, [invInput, lookupBtn])]),
+        el("p.muted.sm", { text: "Try 90001234, 90005678, or 90009999 in mock mode." }),
+      ]),
       invResult,
     ]),
     el("div.card", {}, [

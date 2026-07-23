@@ -1,30 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 require("dotenv").config();
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
@@ -33,10 +6,6 @@ const md  = require("../data/masterData");
 const DEV_FALLBACK_SECRET = "opm-ccms-dev-secret-change-in-prod";
 const JWT_SECRET  = process.env.JWT_SECRET  || DEV_FALLBACK_SECRET;
 const JWT_EXPIRES = process.env.JWT_EXPIRES || "8h";
-
-
-
-
 
 (function guardJwtSecret() {
   const s = process.env.JWT_SECRET || "";
@@ -60,15 +29,6 @@ const JWT_EXPIRES = process.env.JWT_EXPIRES || "8h";
   }
 })();
 
-
-
-
-
-
-
-
-
-
 const revokedJtis = new Map();
 
 function revokeToken(token) {
@@ -86,13 +46,10 @@ function isTokenRevoked(decoded) {
   return true;
 }
 
-
 setInterval(() => {
   const now = Date.now();
   for (const [jti, exp] of revokedJtis) if (now >= exp) revokedJtis.delete(jti);
 }, 60 * 60 * 1000).unref();
-
-
 
 const STATUS_ALLOWED_ROLES = {
   Logged:                    ["R001", "R002"],
@@ -107,8 +64,6 @@ const STATUS_ALLOWED_ROLES = {
   Visit_Pending:             ["R010", "R011"],
   Finance_Processing:        ["R010"],
 };
-
-
 
 const ROUTE_PERMISSIONS = {
 
@@ -126,15 +81,6 @@ const ROUTE_PERMISSIONS = {
 
   readOnly:           "*",
 };
-
-
-
-
-
-
-
-
-
 
 const AUTH_COOKIE = "ccms_token";
 
@@ -165,12 +111,6 @@ function signToken(user) {
   );
 }
 
-
-
-
-
-
-
 function authenticate(req, res, next) {
   const header = req.headers["authorization"] || "";
   const token =
@@ -186,12 +126,9 @@ function authenticate(req, res, next) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
 
-
-
     if (isTokenRevoked(decoded)) {
       return res.status(401).json({ error: "Session ended. Please login again." });
     }
-
 
     const role = md.findRole(decoded.roleId) || {};
     req.user = {
@@ -209,8 +146,6 @@ function authenticate(req, res, next) {
   }
 }
 
-
-
 function requireRoles(allowedRoles) {
   return (req, res, next) => {
     if (req.user.isAdmin) return next();
@@ -223,14 +158,8 @@ function requireRoles(allowedRoles) {
   };
 }
 
-
-
-
 function canActOnStatus(user, complaintStatus, action, priorStatus) {
   if (user.isAdmin) return { allowed: true };
-
-
-
 
   let effectiveStatus = complaintStatus;
   if (complaintStatus === "Clarification_Sought") {
@@ -251,7 +180,6 @@ function canActOnStatus(user, complaintStatus, action, priorStatus) {
       reason: `Status '${complaintStatus}' can only be actioned by: ${allowed.join(", ")}. Your role: ${user.roleId} (${user.roleName}).`,
     };
   }
-
 
   if (action === "approve") {
     if (!user.canApprove && !user.canForward) {

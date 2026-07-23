@@ -308,6 +308,8 @@ textarea.input { resize: vertical; }
 .sub-item { padding: 12px 0; border-bottom: 1px solid var(--surface-2); }
 .sub-item:last-child { border-bottom: none; }
 .sub-item.compact { padding: 7px 0; }
+.notif-item { padding: 14px 16px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.notif-item:last-child { margin-bottom: 0; }
 .sub-main { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
 .sub-meta { font-size: 14px; color: var(--text-2); }
 .sub-actions { margin-top: 8px; }

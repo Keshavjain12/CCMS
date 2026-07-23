@@ -40,7 +40,7 @@ CCMS.views.notifications = async function (mount) {
     const items = res.notifications || [];
     if (!items.length) { card.appendChild(CCMS.ui.empty("No notifications yet.")); return; }
     items.forEach((n) => {
-      card.appendChild(el("div.sub-item", {}, [
+      card.appendChild(el("div.notif-item", {}, [
         el("div.sub-main", {}, [
           el("strong", { text: n.subject || n.event || "Notification" }),
           n.complaintNo ? el("a.link", { href: "#/complaints/" + n.complaintNo, text: n.complaintNo }) : null,

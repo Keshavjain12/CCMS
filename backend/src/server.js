@@ -7,38 +7,22 @@ const sap     = require("./services/sapService");
 const { authenticate, requireRoles } = require("./middleware/auth");
 const { paginate } = require("./utils/pagination");
 
-
-
-
-
 const app = require("./utils/asyncRoute").protect(express());
-
-
-
-
 
 const GLOBAL_VIEW_ROLES = ["R000", "R009"];
 
 const ADMIN_ONLY = ["R000"];
 
-
-
-
 if (process.env.TRUST_PROXY === "true") app.set("trust proxy", 1);
-
 
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" },
 
-
-
   hsts: process.env.NODE_ENV === "production"
     ? { maxAge: 15552000, includeSubDomains: true }
     : false,
 }));
-
-
 
 if (process.env.NODE_ENV === "production") {
   app.use((req, res, next) => {
@@ -46,7 +30,6 @@ if (process.env.NODE_ENV === "production") {
     res.status(403).json({ error: "HTTPS is required." });
   });
 }
-
 
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -57,17 +40,11 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
-
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max:      parseInt(process.env.AUTH_RATE_LIMIT_MAX || "20"),
   message:  { error: "Too many login attempts. Please wait 15 minutes before trying again." },
 });
-
-
-
-
-
 
 const corsOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
   .split(",").map((s) => s.trim()).filter(Boolean);
@@ -82,13 +59,10 @@ app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "1mb" }));
 app.use(require("cookie-parser")());
 app.use(morgan("dev"));
 
-
 app.use("/api/auth", authLimiter, require("./routes/auth"));
-
 
 app.use("/api/master-data",  authenticate, require("./routes/masterData"));
 app.use("/api/complaints",   authenticate, require("./routes/complaints"));
-
 
 app.get("/api/audit-log", authenticate, requireRoles(GLOBAL_VIEW_ROLES), async (req, res, next) => {
   try {
@@ -99,17 +73,12 @@ app.get("/api/audit-log", authenticate, requireRoles(GLOBAL_VIEW_ROLES), async (
   }
 });
 
-
 const notify = require("./services/notificationService");
-
 
 const sla = require("./services/slaEngine");
 
-
-
-
-app.get("/api/notifications", authenticate, requireRoles(GLOBAL_VIEW_ROLES), (req, res) => {
-  const all = notify.getAllNotifications();
+app.get("/api/notifications", authenticate, requireRoles(GLOBAL_VIEW_ROLES), async (req, res) => {
+  const all = await notify.getAllNotifications();
   const page = paginate(all, req.query, "notifications");
   res.json({
     mode:  notify.MODE,
@@ -121,12 +90,20 @@ app.get("/api/notifications", authenticate, requireRoles(GLOBAL_VIEW_ROLES), (re
   });
 });
 
+app.get("/api/notifications/:complaintNo", authenticate, async (req, res, next) => {
+  try {
 
-app.get("/api/notifications/:complaintNo", authenticate, (req, res) => {
-  const list = notify.getForComplaint(req.params.complaintNo);
-  res.json({ complaintNo: req.params.complaintNo, count: list.length, notifications: list });
+    const { complaintStore } = require("./data/transactionalStore");
+    const { visibleToUser } = require("./services/visibility");
+    const complaint = await complaintStore.getByNo(req.params.complaintNo);
+    if (!complaint) return res.status(404).json({ error: "Complaint not found" });
+    if (!(await visibleToUser(req.user, complaint))) {
+      return res.status(403).json({ error: "You are not authorised to view this complaint." });
+    }
+    const list = await notify.getForComplaint(req.params.complaintNo);
+    res.json({ complaintNo: req.params.complaintNo, count: list.length, notifications: list });
+  } catch (err) { next(err); }
 });
-
 
 app.get("/", (req, res) => {
   res.json({
@@ -137,9 +114,6 @@ app.get("/", (req, res) => {
     rbac: {
       description: "Section 12.3 — Role-Based Access Control enforced on all protected routes",
       loginEndpoint: "POST /api/auth/login  { email, password }",
-
-
-
 
       ...(process.env.NODE_ENV === "production"
         ? {}
@@ -195,9 +169,6 @@ app.get("/", (req, res) => {
       },
     },
 
-
-
-
     testUsers: (process.env.NODE_ENV === "production" ? [
       { email: "admin@orientpaper.com",          role: "Admin (full access)" },
       { email: "kiran.joshi@orientpaper.com",    role: "TS Head — approves at TS_Review" },
@@ -218,7 +189,6 @@ app.get("/", (req, res) => {
   });
 });
 
-
 app.get("/api/sla/breaches", authenticate, requireRoles(GLOBAL_VIEW_ROLES), (req, res) => {
   const breaches = sla.getAllBreaches();
   res.json({
@@ -232,9 +202,7 @@ app.get("/api/sla/breaches", authenticate, requireRoles(GLOBAL_VIEW_ROLES), (req
   });
 });
 
-
 const kpi = require("./services/kpiService");
-
 
 app.get("/api/kpi", authenticate, async (req, res, next) => {
   try {
@@ -244,7 +212,6 @@ app.get("/api/kpi", authenticate, async (req, res, next) => {
     next(err);
   }
 });
-
 
 app.get("/api/kpi/summary", authenticate, async (req, res, next) => {
   try {
@@ -261,12 +228,10 @@ app.get("/api/kpi/summary", authenticate, async (req, res, next) => {
   }
 });
 
-
 app.get("/api/sla/breaches/:complaintNo", authenticate, (req, res) => {
   const breaches = sla.getBreachesForComplaint(req.params.complaintNo);
   res.json({ complaintNo: req.params.complaintNo, count: breaches.length, breaches });
 });
-
 
 app.post("/api/sla/check", authenticate, requireRoles(ADMIN_ONLY), async (req, res, next) => {
   try {
@@ -277,33 +242,27 @@ app.post("/api/sla/check", authenticate, requireRoles(ADMIN_ONLY), async (req, r
   }
 });
 
-
 const archive = require("./services/archivalService");
-
 
 app.get("/api/archive", authenticate, requireRoles(ADMIN_ONLY), async (req, res) => {
   const complaints = await archive.getAllArchived();
   res.json({ count: complaints.length, complaints });
 });
 
-
 app.get("/api/archive/policy", authenticate, requireRoles(ADMIN_ONLY), async (req, res) => {
   res.json(await archive.getPolicy());
 });
-
 
 app.get("/api/archive/log", authenticate, requireRoles(ADMIN_ONLY), (req, res) => {
   const log = archive.getAllArchivalLog();
   res.json({ count: log.length, log });
 });
 
-
 app.get("/api/archive/:complaintNo", authenticate, requireRoles(ADMIN_ONLY), async (req, res) => {
   const c = await archive.getArchivedComplaint(req.params.complaintNo);
   if (!c) return res.status(404).json({ error: "Not found in archive" });
   res.json(c);
 });
-
 
 app.post("/api/archive/run", authenticate, requireRoles(ADMIN_ONLY), async (req, res, next) => {
   try {
@@ -312,15 +271,11 @@ app.post("/api/archive/run", authenticate, requireRoles(ADMIN_ONLY), async (req,
   } catch (err) { next(err); }
 });
 
-
 const rollout = require("./config/rollout");
-
 
 app.get("/api/rollout", authenticate, requireRoles(ADMIN_ONLY), (req, res) => {
   res.json(rollout.getRolloutStatus());
 });
-
-
 
 const auditModule = require("./data/auditLog");
 app.get("/api/audit-log/verify", authenticate, requireRoles(GLOBAL_VIEW_ROLES), async (req, res, next) => {
@@ -331,16 +286,9 @@ app.get("/api/audit-log/verify", authenticate, requireRoles(GLOBAL_VIEW_ROLES), 
   }
 });
 
-
-
-
-
-
 app.use((err, req, res, next) => {
   console.error(`[API] ${req.method} ${req.originalUrl} — ${err.message}`);
   if (res.headersSent) return next(err);
-
-
 
   const inProd = process.env.NODE_ENV === "production";
   res.status(err.status || 500).json({
@@ -348,19 +296,15 @@ app.use((err, req, res, next) => {
   });
 });
 
-
 const PORT = process.env.PORT || 3000;
 const db = require("./db/pool");
 const masterData = require("./data/masterData");
-
-
-
-
 
 (async () => {
   try {
     const health = await db.healthcheck();
     const counts = await masterData.load();
+    await notify.ensureTable();
     console.log(`\n🗄️  [DB] connected → ${health.database} (${health.version})`);
     console.log(`   master data loaded: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(", ")}`);
   } catch (err) {

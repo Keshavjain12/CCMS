@@ -168,14 +168,20 @@ function checkPolicyCompliance(policy, invoiceDate, settlementValue, invoiceValu
     };
   }
 
-  const settlementPct = (settlementValue / invoiceValue) * 100;
-  if (settlementPct > policy.maxSettlementPct) {
-    return {
-      compliant: false,
-      flag: "Breach",
-      clauseBreached: `Settlement ${settlementPct.toFixed(1)}% of invoice exceeds policy ceiling of ${policy.maxSettlementPct}%`,
-      forcesMdApproval: policy.approvalOverrideOnBreach,
-    };
+  // The settlement % of invoice can only be assessed once SAP has confirmed the
+  // invoice value. On a manual / "pending SAP validation" complaint that value
+  // is 0, so skip the percentage check instead of dividing by zero (which showed
+  // "Settlement Infinity%"). It is re-assessed when the real invoice value lands.
+  if (invoiceValue > 0) {
+    const settlementPct = (settlementValue / invoiceValue) * 100;
+    if (settlementPct > policy.maxSettlementPct) {
+      return {
+        compliant: false,
+        flag: "Breach",
+        clauseBreached: `Settlement ${settlementPct.toFixed(1)}% of invoice exceeds policy ceiling of ${policy.maxSettlementPct}%`,
+        forcesMdApproval: policy.approvalOverrideOnBreach,
+      };
+    }
   }
 
   return { compliant: true, flag: "Within Policy", clauseBreached: null, forcesMdApproval: false };

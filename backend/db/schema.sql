@@ -1,5 +1,6 @@
 BEGIN;
 
+DROP TABLE IF EXISTS notifications        CASCADE;
 DROP TABLE IF EXISTS audit_log            CASCADE;
 DROP TABLE IF EXISTS credit_notes         CASCADE;
 DROP TABLE IF EXISTS capa_records         CASCADE;
@@ -344,6 +345,26 @@ CREATE TABLE audit_log (
 COMMENT ON TABLE audit_log IS 'Section 12.6 — append-only. UPDATE and DELETE are blocked by trigger, not convention.';
 CREATE INDEX idx_audit_complaint ON audit_log(complaint_no);
 CREATE INDEX idx_audit_timestamp ON audit_log("timestamp" DESC);
+
+CREATE TABLE notifications (
+    id           bigserial   PRIMARY KEY,
+    complaint_no varchar(20),
+    channel      varchar(20) NOT NULL DEFAULT 'internal',
+    event        varchar(40),
+    status       varchar(80),
+    subject      text,
+    recipients   jsonb       NOT NULL DEFAULT '[]'::jsonb,
+    body         text,
+    mode         varchar(20),
+    actor_id     varchar(30),
+    remarks      text,
+    skipped      varchar(40),
+    error        text,
+    sent_at      timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE notifications IS 'Email trail: customer-facing + internal notifications, one row per queued/sent/skipped message.';
+CREATE INDEX idx_notifications_complaint_no ON notifications(complaint_no);
+CREATE INDEX idx_notifications_dedup        ON notifications(complaint_no, channel, event);
 
 CREATE OR REPLACE FUNCTION audit_log_is_immutable() RETURNS trigger AS $$
 BEGIN

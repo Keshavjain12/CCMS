@@ -1,8 +1,3 @@
-
-
-
-
-
 window.CCMS = window.CCMS || {};
 CCMS.views = CCMS.views || {};
 
@@ -17,14 +12,10 @@ CCMS.views.complaintDetail = async function (mount, params) {
   const container = el("div#detail-body");
   mount.appendChild(container);
 
-
   container.appendChild(detailSkeleton());
 
   let masterCache = null;
   let lastStatus = null;
-
-
-
 
   const parts = {};
 
@@ -32,10 +23,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
 
   async function load() {
     try {
-
-
-
-
 
       const [c, seq] = await Promise.all([
         CCMS.api.get("/api/complaints/" + encodeURIComponent(no)),
@@ -48,18 +35,9 @@ CCMS.views.complaintDetail = async function (mount, params) {
     }
   }
 
-
-
-
-
-
-
-
-
   function swap(key, next) {
     const prev = parts[key];
     if (!prev || !prev.parentNode) return;
-
 
     if (prev.id) next.id = prev.id;
     if (prev.classList.contains("detail-section")) next.classList.add("detail-section");
@@ -76,9 +54,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
       ]);
       const gates = (seq && seq.gates) || null;
 
-
-
-
       const canAct = CCMS.roles.canActOnStatus(user.roleId, c.status, c._priorStatus);
       const terminal = ["Closed", "Auto_Closed", "Rejected"].includes(c.status);
 
@@ -90,6 +65,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
       swap("visits", visitsCard(c));
       swap("capa", capaCard(c));
       swap("credit", creditNoteCard(c));
+      swap("emails", notificationsCard(c));
       swap("audit", auditCard(c));
       lastStatus = c.status;
     } catch (err) {
@@ -117,7 +93,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
 
     const canAct = CCMS.roles.canActOnStatus(user.roleId, c.status, c._priorStatus);
     const terminal = ["Closed", "Auto_Closed", "Rejected"].includes(c.status);
-
 
     container.appendChild(el("div.card.detail-head", {}, [
       el("div.detail-title", {}, [
@@ -149,11 +124,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
         : null,
     ]));
 
-
     container.appendChild((parts.workflow = workflowStrip(c, null)));
-
-
-
 
     const sections = [];
     const left = el("div.detail-col");
@@ -166,15 +137,13 @@ CCMS.views.complaintDetail = async function (mount, params) {
       return node;
     }
 
-
-
     left.appendChild(section("items", "Line items", (c.lineItems || []).length, lineItemsCard(c)));
     if ((c.samples || []).length || isQC()) left.appendChild(section("samples", "Samples", (c.samples || []).length, (parts.samples = samplesCard(c))));
     if ((c.capas || []).length || isOps()) left.appendChild(section("capa", "CAPA", (c.capas || []).length, (parts.capa = capaCard(c))));
     if ((c.visits || []).length || isVisitRole()) left.appendChild(section("visits", "Visits", (c.visits || []).length, (parts.visits = visitsCard(c))));
     if ((c.creditNotes || []).length || isFinance()) left.appendChild(section("credit", "Credit note", (c.creditNotes || []).length, (parts.credit = creditNoteCard(c))));
+    left.appendChild(section("emails", "Emails", null, (parts.emails = notificationsCard(c))));
     left.appendChild(section("audit", "Audit", null, (parts.audit = auditCard(c))));
-
 
     right.appendChild((parts.actions = actionPanel(c, canAct, terminal, gates)));
     right.appendChild((parts.gates = gatesCard(c, gates)));
@@ -185,7 +154,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
 
     lastStatus = c.status;
   }
-
 
   function subnav(sections) {
     const nav = el("nav.subnav", { "aria-label": "Complaint sections" });
@@ -211,7 +179,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
-
   function isQC()      { return ["R000", "R003", "R004"].includes(user.roleId); }
   function isOps()     { return ["R000", "R005", "R006"].includes(user.roleId); }
   function isVisitRole(){ return ["R000", "R010", "R011"].includes(user.roleId); }
@@ -223,11 +190,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
       el("span.fact-value", { text: value == null || value === "" ? "—" : String(value) }),
     ]);
   }
-
-
-
-
-
 
   function workflowStrip(c, previous) {
     const seq = (c.statusSequence || []).length ? c.statusSequence : defaultSeq();
@@ -260,7 +222,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     }
   }
 
-
   function lineItemsCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [el("h3", { text: "Line items (" + (c.lineItems || []).length + ")" })])]);
     if (!(c.lineItems || []).length) { card.appendChild(CCMS.ui.empty("No line items.")); return card; }
@@ -278,8 +239,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
         el("td.num", { text: String(li.defectiveQty != null ? li.defectiveQty : "—") }),
         el("td.num", { text: money(li.unitPrice) }),
 
-
-
         el("td.num", {}, [el("strong", { text: money(li.defectiveValue != null ? li.defectiveValue : (li.unitPrice || 0) * (li.defectiveQty || 0)) })]),
         el("td", {}, [li.sampleRequired ? pill("Required", "pill-warn") : pill("No", "pill-ok")]),
       ]));
@@ -288,7 +247,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     card.appendChild(t);
     return card;
   }
-
 
   function samplesCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [
@@ -313,7 +271,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-
   function capaCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [
       el("h3", { text: "CAPA (Operations)" }),
@@ -331,7 +288,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     });
     return card;
   }
-
 
   function visitsCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [
@@ -352,7 +308,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
           ? el("div.sub-actions", {}, [
               el("button.btn.btn-xs.btn-ghost", { text: "Record outcome", onClick: () => visitUpdateForm(c, v) }),
 
-
               !v.visitDate && !v.findings && !v.outcome && !v.customerAcknowledgement
                 ? el("button.btn.btn-xs.btn-ghost", { text: "✕ Remove", title: "Remove this visit — scheduled by mistake", onClick: () => removeVisit(c, v) })
                 : null,
@@ -362,7 +317,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     });
     return card;
   }
-
 
   function creditNoteCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [
@@ -385,7 +339,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-
   function attachmentsCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [el("h3", { text: "Attachments" })])]);
     (c.attachments || []).forEach((a) => {
@@ -397,12 +350,9 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
-
   function auditCard(c) {
     const card = el("div.card", {}, [el("div.card-head", {}, [
       el("h3", { text: "Audit trail" }),
-
-
 
       CCMS.roles.canViewGlobal(user.roleId)
         ? el("a.link", { href: "#/audit", text: "Full log →" })
@@ -431,14 +381,44 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return card;
   }
 
+  function notificationsCard(c) {
+    const card = el("div.card", {}, [el("div.card-head", {}, [
+      el("h3", { text: "Emails" }),
+      el("a.link", { href: "#/notifications", text: "All notifications →" }),
+    ])]);
+    const list = el("div.timeline");
+    card.appendChild(list);
+    list.appendChild(CCMS.ui.spinner("Loading emails…"));
+    CCMS.api.get("/api/notifications/" + encodeURIComponent(c.complaintNo))
+      .then((res) => {
+        CCMS.ui.clear(list);
+        card.querySelector(".card-head h3").textContent = "Emails (" + (res.count || 0) + ")";
+        const items = res.notifications || [];
+        if (!items.length) { list.appendChild(CCMS.ui.empty("No emails sent for this complaint yet.")); return; }
+        items.forEach((n) => {
+          const isCust = n.channel === "customer";
+          list.appendChild(el("div.tl-item", {}, [
+            el("div.tl-dot"),
+            el("div.tl-body", {}, [
+              el("div.tl-title", {}, [
+                pill(isCust ? "Customer" : "Team", isCust ? "pill-ok" : "pill-warn"),
+                el("span", { text: "  " + (n.subject || n.event || "Email") }),
+              ]),
+              el("div.tl-meta", { text: "To: " + fmtRecipients(n.to) + " · " + dateFmt(n.sentAt || n.at || n.timestamp) +
+                (n.mode ? " · " + n.mode : "") + (n.skipped ? " · skipped (" + n.skipped + ")" : "") }),
+              n.body ? el("div.tl-remarks", { text: n.body }) : null,
+            ]),
+          ]));
+        });
+      })
+      .catch((err) => { CCMS.ui.clear(list); list.appendChild(CCMS.ui.errorBox(err)); });
+    return card;
 
-
-
-
-
-
-
-
+    function fmtRecipients(to) {
+      if (Array.isArray(to)) return to.length ? to.join(", ") : "—";
+      return to || "—";
+    }
+  }
 
   function gateList(c, gates) {
     const g = gates || {};
@@ -496,7 +476,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return list;
   }
 
-
   function passedStage(c, stage) {
     const seq = c.statusSequence || [];
     const at = seq.indexOf(c.status), of = seq.indexOf(stage);
@@ -510,7 +489,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     list.forEach((g) => card.appendChild(CCMS.ui.gate(g)));
     return card;
   }
-
 
   function actionPanel(c, canAct, terminal, gates) {
     const card = el("div.card.action-panel", {}, [el("div.card-head", {}, [el("h3", { text: "Actions" })])]);
@@ -529,9 +507,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
 
     card.appendChild(el("p.muted.sm", { text: "You are authorised to act at " + c.status.replace(/_/g, " ") + "." }));
 
-
-
-
     const blocker = gateList(c, gates).find((g) => g.state === "blocked");
 
     const buttons = el("div.action-buttons");
@@ -543,7 +518,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     });
     if (blocker) {
       approve.disabled = true;
-
 
       approve.setAttribute("aria-describedby", "approve-blocked");
       approve.title = blocker.why;
@@ -563,8 +537,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     }
     card.appendChild(buttons);
 
-
-
     if (blocker) {
       const g = CCMS.ui.gate(blocker);
       g.id = "approve-blocked";
@@ -573,10 +545,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
 
     return card;
   }
-
-
-
-
 
   function startApprove(c, label) {
     const money_ = CCMS.ui.money;
@@ -616,10 +584,6 @@ CCMS.views.complaintDetail = async function (mount, params) {
     return el("div.kv", {}, [el("span.kv-label", { text: label }), el("span.kv-value", { text: value || "—" })]);
   }
 
-
-
-
-
   function actionForm(c, action, label) {
     const remarks = el("textarea.input", { rows: "3", placeholder: "Remarks (optional)…" });
     CCMS.ui.openModal({
@@ -631,13 +595,8 @@ CCMS.views.complaintDetail = async function (mount, params) {
       actions: [
         { label: "Cancel", cls: "btn-ghost" },
 
-
-
         { label: label, cls: action === "reject" ? "btn-danger" : "btn-primary", onClick: async (close) => {
           try {
-
-
-
 
             const res = await CCMS.api.post("/api/complaints/" + encodeURIComponent(c.complaintNo) + "/action",
               { action, remarks: remarks.value || undefined });
@@ -778,13 +737,9 @@ CCMS.views.complaintDetail = async function (mount, params) {
 
   function visitUpdateForm(c, v) {
 
-
-
     const status = el("select.input", {}, ["Planned", "Completed", "Cancelled"].map((x) =>
       el("option", { value: x, selected: x === v.visitStatus ? "selected" : null, text: x })));
     const findings = el("textarea.input", { rows: "2", placeholder: "Findings…", text: v.findings || "" });
-
-
 
     const outcome = el("select.input", {}, ["", "Resolved On-Site", "Escalation Confirmed", "No Further Action"].map((x) =>
       el("option", { value: x, selected: x === (v.outcome || "") ? "selected" : null, text: x || "— not recorded —" })));

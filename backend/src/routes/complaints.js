@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 const express = require("express");
 const fs = require("fs");
 const router = require("../utils/asyncRoute").safeRouter();
@@ -39,11 +24,6 @@ const rollout = require("../config/rollout");
 const notify = require("../services/notificationService");
 const { paginate } = require("../utils/pagination");
 
-
-
-
-
-
 async function enrich(complaint) {
   if (!complaint) return null;
   const [lineItems, attachments, samples, visits, capas, creditNotes] = await Promise.all([
@@ -60,7 +40,6 @@ async function enrich(complaint) {
     statusSequence: workflow.getEffectiveSequence(complaint),
   };
 }
-
 
 async function enrichMany(complaints) {
   if (!complaints.length) return [];
@@ -90,12 +69,6 @@ async function enrichMany(complaints) {
   }));
 }
 
-
-
-
-
-
-
 const { visibleToUser, filterVisible } = require("../services/visibility");
 
 async function denyIfHidden(req, res, complaint) {
@@ -103,16 +76,6 @@ async function denyIfHidden(req, res, complaint) {
   res.status(403).json({ error: "You are not authorised to view this complaint." });
   return true;
 }
-
-
-
-
-
-
-
-
-
-
 
 router.post("/", async (req, res, next) => {
   try {
@@ -128,6 +91,12 @@ router.post("/", async (req, res, next) => {
     if (!invoiceNumber) return res.status(400).json({ error: "invoiceNumber is required" });
     if (!lineItemsInput.length) return res.status(400).json({ error: "At least one line item (affected product) is required" });
 
+    const badAttachment = (attachmentsInput || []).find((a) => a.fileType && !fileStore.EXT_BY_TYPE[a.fileType]);
+    if (badAttachment) {
+      return res.status(400).json({
+        error: `Invalid attachment fileType '${badAttachment.fileType}'. Valid: ${Object.keys(fileStore.EXT_BY_TYPE).join(", ")}.`,
+      });
+    }
 
     let invoice;
     let sapFallback = false;
@@ -145,7 +114,6 @@ router.post("/", async (req, res, next) => {
         lineItems:           [],
       };
     }
-
 
     let customerRecord;
     let customerSapData;
@@ -168,17 +136,11 @@ router.post("/", async (req, res, next) => {
       };
     }
 
-
-
     const firstItem = lineItemsInput[0];
     const productInfo = firstItem.sapMaterialNo
       ? masterData.findProduct(firstItem.sapMaterialNo)
       : null;
     const businessLine = productInfo?.businessLine || customerRecord.businessLine || "Paper";
-
-
-
-
 
     const gate = rollout.checkRolloutGate(businessLine, customerRecord.region);
     if (!gate.allowed) {
@@ -186,8 +148,6 @@ router.post("/", async (req, res, next) => {
     }
 
     const policy = masterData.findApplicablePolicy(businessLine, customerRecord.segment);
-
-
 
     const invoiceItemMap = {};
     (invoice.lineItems || []).forEach((li) => {
@@ -200,14 +160,6 @@ router.post("/", async (req, res, next) => {
 
     const createdLineItems = lineItemsInput.map((input) => {
       const invItem = invoiceItemMap[input.invoiceItemNo];
-
-
-
-
-
-
-
-
 
       let unitPrice, invoiceQty, source;
       if (!sapFallback) {
@@ -253,13 +205,6 @@ router.post("/", async (req, res, next) => {
       });
     }
 
-
-
-
-
-
-
-
     const overclaimed = createdLineItems
       .filter(Boolean)
       .filter((li) => li.defectiveQty > li.invoiceQty);
@@ -272,6 +217,19 @@ router.post("/", async (req, res, next) => {
       });
     }
 
+    const itemBusinessLines = [...new Set(
+      createdLineItems
+        .filter(Boolean)
+        .map((li) => masterData.findProduct(li.sapMaterialNo)?.businessLine)
+        .filter(Boolean)
+    )];
+    if (itemBusinessLines.length > 1) {
+      return res.status(400).json({
+        error: `All affected products in one complaint must belong to the same business line — ` +
+               `found ${itemBusinessLines.join(" and ")}. Please file a separate complaint per business line.`,
+        businessLines: itemBusinessLines,
+      });
+    }
 
     const policyResult = masterData.checkPolicyCompliance(
       policy,
@@ -280,20 +238,8 @@ router.post("/", async (req, res, next) => {
       parseFloat(invoice.NetAmount)
     );
 
-
-
-
-
-
-
     const knownCustomerId = masterData.findCustomer(customerRecord.customerId)
       ? customerRecord.customerId : null;
-
-
-
-
-
-
 
     const complaint = await db.tx(async (client) => {
       const c = await complaintStore.create({
@@ -331,7 +277,6 @@ router.post("/", async (req, res, next) => {
       return c;
     });
 
-
     await audit.log({
       complaintNo: complaint.complaintNo,
       fromStatus:  null,
@@ -353,58 +298,43 @@ router.post("/", async (req, res, next) => {
       });
     }
 
+    notify.sendCustomerNotification({ complaint, event: "acknowledgement" })
+      .catch((err) => console.error("[NOTIFY] Customer acknowledgement error:", err.message));
+
     res.status(201).json({
       success:     true,
       complaint:   await enrich(complaint),
       policyAlert: policyResult.compliant ? null : policyResult,
       warnings:    sapFallback ? ["SAP invoice lookup failed — complaint created with manual data, pending validation"] : [],
+      acknowledgement: {
+        channel: "customer-email",
+        to:      notify.resolveCustomerEmail(complaint),
+        mode:    notify.MODE,
+        status:  "Logged",
+      },
     });
   } catch (err) {
     next(err);
   }
 });
 
-
-
-
-
 router.get("/", async (req, res) => {
-
-
-
-
-
-
-
-
 
   const all = await complaintStore.getAll({ ...req.query, archived: false });
   const visible = await filterVisible(req.user, all);
-
 
   const page = paginate(visible, req.query, "data");
   page.data = await enrichMany(page.data);
   res.json(page);
 });
 
-
-
-
-
 router.get("/:complaintNo", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: `Complaint ${req.params.complaintNo} not found` });
 
-
   if (await denyIfHidden(req, res, complaint)) return;
   res.json(await enrich(complaint));
 });
-
-
-
-
-
-
 
 router.post("/:complaintNo/action", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
@@ -414,7 +344,6 @@ router.post("/:complaintNo/action", async (req, res) => {
 
   const { action, remarks } = req.body;
   if (!action) return res.status(400).json({ error: "action is required" });
-
 
   const rbac = canActOnStatus(req.user, complaint.status, action, complaint._priorStatus);
   if (!rbac.allowed) {
@@ -444,7 +373,6 @@ router.post("/:complaintNo/action", async (req, res) => {
     remarks:     remarks || null,
   });
 
-
   const updatedComplaint = await complaintStore.getByNo(complaint.complaintNo);
   notify.sendNotification({
     complaint:  updatedComplaint,
@@ -452,6 +380,12 @@ router.post("/:complaintNo/action", async (req, res) => {
     actorUser:  req.user,
     remarks:    remarks || null,
   }).catch((err) => console.error("[NOTIFY] Error:", err.message));
+
+  const customerEvent = notify.customerEventForStatus(result.newStatus);
+  if (customerEvent) {
+    notify.sendCustomerNotification({ complaint: updatedComplaint, event: customerEvent })
+      .catch((err) => console.error("[NOTIFY] Customer update error:", err.message));
+  }
 
   res.json({
     success:     true,
@@ -463,18 +397,16 @@ router.post("/:complaintNo/action", async (req, res) => {
       status: "queued",
       hint:   notify.MODE === "mock" ? "Check server console or GET /api/notifications" : "Emails dispatched",
     },
+    customerNotification: customerEvent
+      ? { event: customerEvent, to: notify.resolveCustomerEmail(updatedComplaint), mode: notify.MODE }
+      : null,
     complaint:   await enrich(updatedComplaint),
   });
 });
 
-
-
-
-
 router.post("/:complaintNo/line-items", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
-
 
   if (await denyIfHidden(req, res, complaint)) return;
   if (!["Draft", "Logged"].includes(complaint.status)) {
@@ -484,10 +416,6 @@ router.post("/:complaintNo/line-items", async (req, res) => {
   const { invoiceItemNo, sapMaterialNo, productName, uom, complaintTypeId, defectiveQty } = req.body;
   const parsedDefQty = parseFloat(defectiveQty || 0);
   const cType = masterData.findComplaintType(complaintTypeId);
-
-
-
-
 
   let unitPrice = 0, invoiceQty = 0;
   let mat = sapMaterialNo, name = productName, unit = uom;
@@ -517,7 +445,14 @@ router.post("/:complaintNo/line-items", async (req, res) => {
     invoiceQty = parseFloat(req.body.invoiceQty || 0);
   }
 
-
+  const newItemBusinessLine = masterData.findProduct(mat)?.businessLine;
+  if (newItemBusinessLine && complaint.businessLine && newItemBusinessLine !== complaint.businessLine) {
+    return res.status(400).json({
+      error: `This product is a ${newItemBusinessLine} product, but complaint ${complaint.complaintNo} ` +
+             `is a ${complaint.businessLine} complaint. All line items must share one business line — ` +
+             `please file a separate complaint for ${newItemBusinessLine} products.`,
+    });
+  }
 
   if (parsedDefQty > invoiceQty) {
     return res.status(400).json({
@@ -539,10 +474,8 @@ router.post("/:complaintNo/line-items", async (req, res) => {
     sampleRequired:   cType?.sampleRequired || false,
   });
 
-
   const newTotal = await lineItemStore.getTotalDefectiveValue(complaint.complaintNo);
   await complaintStore.update(complaint.complaintNo, { settlementValue: newTotal });
-
 
   if (cType?.sampleRequired && !complaint.sampleRequired) {
     await complaintStore.update(complaint.complaintNo, { sampleRequired: true });
@@ -560,17 +493,17 @@ router.post("/:complaintNo/line-items", async (req, res) => {
   res.status(201).json({ success: true, lineItem: li, newSettlementValue: newTotal });
 });
 
-
-
-
-
 router.post("/:complaintNo/attachments", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
 
-
-
   if (await denyIfHidden(req, res, complaint)) return;
+
+  if (req.body.fileType && !fileStore.EXT_BY_TYPE[req.body.fileType]) {
+    return res.status(400).json({
+      error: `Invalid fileType '${req.body.fileType}'. Valid: ${Object.keys(fileStore.EXT_BY_TYPE).join(", ")}.`,
+    });
+  }
 
   const att = await attachmentStore.create({
     complaintNo: complaint.complaintNo,
@@ -589,14 +522,6 @@ router.post("/:complaintNo/attachments", async (req, res) => {
 
   res.status(201).json({ success: true, attachment: att });
 });
-
-
-
-
-
-
-
-
 
 router.post(
   "/:complaintNo/attachments/upload",
@@ -645,7 +570,6 @@ router.post(
   }
 );
 
-
 router.get("/:complaintNo/attachments/:attachmentId/file", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
@@ -667,11 +591,6 @@ router.get("/:complaintNo/attachments/:attachmentId/file", async (req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
-
-
-
-
-
 router.post("/:complaintNo/samples", requireRoles(["R003","R004"]), async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
@@ -683,11 +602,6 @@ router.post("/:complaintNo/samples", requireRoles(["R003","R004"]), async (req, 
     ...req.body,
     createdBy:      req.user.userId,
   });
-
-
-
-
-
 
   await audit.log({
     complaintNo: complaint.complaintNo,
@@ -723,8 +637,6 @@ router.put("/:complaintNo/samples/:sampleId", requireRoles(["R003","R004"]), asy
   const sample = await sampleStore.update(req.params.sampleId, updates);
   if (!sample) return res.status(404).json({ error: "Sample not found" });
 
-
-
   await audit.log({
     complaintNo: complaint.complaintNo,
     action:      `Sample Updated — New Status: ${sampleStatus || "unchanged"}`,
@@ -737,15 +649,9 @@ router.put("/:complaintNo/samples/:sampleId", requireRoles(["R003","R004"]), asy
   res.json({ success: true, sample });
 });
 
-
-
-
-
-
 router.post("/:complaintNo/visits", requireRoles(["R010","R011"]), async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
-
 
   const isMandatory = workflow.requiresVisit(complaint);
   const visit = await visitStore.create({
@@ -755,7 +661,6 @@ router.post("/:complaintNo/visits", requireRoles(["R010","R011"]), async (req, r
     scheduledDate: req.body.scheduledDate,
     assignedTo:    req.body.assignedTo,
   });
-
 
   await complaintStore.update(complaint.complaintNo, { visitRequested: true });
 
@@ -777,18 +682,12 @@ router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), async
 
   const { visitStatus, visitDate, findings, customerAcknowledgement, outcome } = req.body;
 
-
-
-
-
   if (visitStatus && !VISIT_STATUSES.includes(visitStatus)) {
     return res.status(400).json({ error: `Invalid visitStatus. Valid: ${VISIT_STATUSES.join(", ")}` });
   }
   if (outcome && !VISIT_OUTCOMES.includes(outcome)) {
     return res.status(400).json({ error: `Invalid outcome. Valid: ${VISIT_OUTCOMES.join(", ")}` });
   }
-
-
 
   const updates = {};
   if (visitStatus)            updates.visitStatus = visitStatus;
@@ -810,15 +709,6 @@ router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), async
 
   res.json({ success: true, visit });
 });
-
-
-
-
-
-
-
-
-
 
 router.delete("/:complaintNo/visits/:visitId", requireRoles(["R010", "R011"]), async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
@@ -849,10 +739,6 @@ router.delete("/:complaintNo/visits/:visitId", requireRoles(["R010", "R011"]), a
 
   res.json({ success: true, removed: visit.visitId });
 });
-
-
-
-
 
 router.post("/:complaintNo/capa", requireRoles(["R005","R006"]), async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
@@ -885,11 +771,6 @@ router.post("/:complaintNo/capa", requireRoles(["R005","R006"]), async (req, res
   res.status(201).json({ success: true, capa });
 });
 
-
-
-
-
-
 router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res, next) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
@@ -905,7 +786,6 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
 
   try {
     const items = await lineItemStore.getForComplaint(complaint.complaintNo);
-
 
     await audit.log({
       complaintNo: complaint.complaintNo,
@@ -926,7 +806,6 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
       lineItems:       items,
     });
 
-
     const cn = await creditNoteStore.create({
       complaintNo:       complaint.complaintNo,
       creditNoteNumber:  sapResult.CreditNoteNumber,
@@ -938,7 +817,6 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
       raisedByName:      req.user.name,
       notifiedTo:        ["Marketing Head", "KAM", "Customer"],
     });
-
 
     await complaintStore.update(complaint.complaintNo, {
       creditNoteNumber: sapResult.CreditNoteNumber,
@@ -976,17 +854,11 @@ router.post("/:complaintNo/credit-note", requireRoles(["R010"]), async (req, res
       actorRole:   "SAP Integration",
     });
 
-
-
     err.status = 502;
     err.publicMessage = "Credit note could not be raised in SAP. Please retry; if it persists, contact support.";
     next(err);
   }
 });
-
-
-
-
 
 router.get("/:complaintNo/audit-log", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
@@ -999,10 +871,6 @@ router.get("/:complaintNo/audit-log", async (req, res) => {
     entries: await audit_data.getForComplaint(complaint.complaintNo),
   });
 });
-
-
-
-
 
 router.get("/:complaintNo/status-sequence", async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
