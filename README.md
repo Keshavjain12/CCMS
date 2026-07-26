@@ -218,36 +218,32 @@ fill in the 4 SAP lines. Zero code changes anywhere else.
 
 ## Deployment (Hosted)
 
-The app runs as two pieces — the **backend** (Node service) and the **frontend**
-(static files) — and needs a **hosted PostgreSQL**. It works on Render, Railway,
-Neon + a Node host, Fly.io, a VPS, etc. Full step-by-step guide: **[DEPLOYMENT.md](DEPLOYMENT.md)**.
+CCMS deploys as **one web service plus a database** — the backend serves the SPA
+too, so there's a single origin (no CORS, no cross-domain cookies, no separate
+frontend host). Works on Render, Railway, Fly.io, a VPS, etc. Full step-by-step
+guide: **[DEPLOYMENT.md](DEPLOYMENT.md)**.
 
 The essentials:
 
 1. **Create a hosted Postgres** and copy its connection string into
-   **`DATABASE_URL`**. When set, it wins over the `PG*` vars and **TLS is enabled
-   automatically**, and `npm run init-db` uses the managed database as-is (it
-   won't try to `CREATE DATABASE`).
-2. **Backend** — set these environment variables:
+   **`DATABASE_URL`**. When set, it overrides the `PG*` vars, **TLS is enabled
+   automatically**, and `npm run init-db` uses the managed database as-is (no
+   `CREATE DATABASE`).
+2. **Create one web service** (Root Directory `backend`, build `npm install`,
+   start `npm start`) with these environment variables:
 
    | Var | Value |
    |---|---|
    | `DATABASE_URL` | your hosted Postgres connection string |
-   | `NODE_ENV` | `production` (enables Secure cookies, HSTS, HTTPS enforcement, error masking) |
-   | `JWT_SECRET` | a long random value — `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` (the server **refuses to boot** in production without a strong one) |
-   | `CORS_ORIGIN` | your frontend's URL (comma-separated allow-list) |
-   | `TRUST_PROXY` | `true` (behind a platform proxy, so Secure cookies work) |
-   | `COOKIE_SAMESITE` | `none` **if** frontend and backend are on different domains, else `lax` |
+   | `NODE_ENV` | `production` (Secure cookies, HSTS, HTTPS enforcement, error masking) |
+   | `JWT_SECRET` | long random — `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` (the server **refuses to boot** in production without a strong one) |
+   | `TRUST_PROXY` | `true` (behind the platform proxy) |
+   | `SAP_USE_MOCK` | `true` unless you have live SAP |
+   | `NOTIFY_MODE` | `mock`, or `live` + the `SMTP_*` vars for real email |
 
-   Then run **`npm run init-db`** once. With `NODE_ENV=production` it rotates the
-   seeded passwords to random ones and prints them once — **save them.**
-3. **Frontend** — deploy the static files, and create **`frontend/env/config.js`**
-   with `API_BASE_URL` pointing at the backend URL (copy from `config.example.js`).
-
-> **Cross-domain login gotcha:** if the frontend and backend are on different
-> domains, the auth cookie is only sent when `COOKIE_SAMESITE=none` **and**
-> `NODE_ENV=production` (Secure). Otherwise you log in and immediately appear
-> logged-out.
+3. Run **`npm run init-db`** once (in the service shell). With
+   `NODE_ENV=production` it rotates the seeded passwords to random ones and prints
+   them once — **save them.** Then open the service URL and sign in.
 
 ---
 

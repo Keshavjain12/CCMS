@@ -1,4 +1,5 @@
 const express    = require("express");
+const path       = require("path");
 const helmet     = require("helmet");
 const rateLimit  = require("express-rate-limit");
 const cors    = require("cors");
@@ -105,7 +106,7 @@ app.get("/api/notifications/:complaintNo", authenticate, async (req, res, next) 
   } catch (err) { next(err); }
 });
 
-app.get("/", (req, res) => {
+app.get("/api", (req, res) => {
   res.json({
     system:   "Orient Paper & Mill — CCMS",
     sapMode:  sap.USE_MOCK ? "MOCK (no real SAP connection needed)" : "LIVE SAP",
@@ -284,6 +285,34 @@ app.get("/api/audit-log/verify", authenticate, requireRoles(GLOBAL_VIEW_ROLES), 
   } catch (err) {
     next(err);
   }
+});
+
+// ── Serve the frontend (single-service deploy) ────────────────────────────
+// The API also serves the static SPA, so the whole app runs from one origin
+// in production — no CORS or cross-domain cookie config needed. In local dev
+// the frontend is usually served separately by frontend/serve.js; this block
+// is harmless there.
+const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
+
+// Hand the SPA a same-origin runtime config (API on the same host), so no
+// git-ignored env/config.js needs to exist on the server. Registered before
+// express.static so it always wins.
+app.get("/env/config.js", (req, res) => {
+  res.type("application/javascript").send(
+    'window.CCMS_ENV = Object.freeze({ ' +
+    'API_BASE_URL: "", ' +
+    'APP_NAME: "Orient Paper & Mill — CCMS", ' +
+    'SHOW_DEMO_ACCOUNTS: false, ' +
+    'DEMO_ACCOUNTS: [] });'
+  );
+});
+
+app.use(express.static(FRONTEND_DIR));
+
+// Hash-routed SPA: any non-API GET that isn't a real file falls back to
+// index.html. /api/* is excluded so unknown API routes still 404 as JSON.
+app.get(/^\/(?!api(?:\/|$)).*/, (req, res, next) => {
+  res.sendFile(path.join(FRONTEND_DIR, "index.html"), (err) => err && next());
 });
 
 app.use((err, req, res, next) => {
