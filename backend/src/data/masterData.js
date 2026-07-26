@@ -1,0 +1,198 @@
+const db = require("../db/pool");
+
+const customers      = [];
+const users          = [];
+const roles          = [];
+const departments    = [];
+const products       = [];
+const complaintTypes = [];
+const sampleTypes    = [];
+const salesPolicies  = [];
+const invoices       = {};
+
+let loaded = false;
+
+function refill(target, rows) {
+  target.length = 0;
+  rows.forEach((r) => target.push(r));
+}
+
+async function load() {
+  refill(departments, await db.many(`
+    SELECT department_id AS "departmentId", department_name AS "departmentName", code
+    FROM departments ORDER BY department_id`));
+
+  refill(roles, await db.many(`
+    SELECT role_id AS "roleId", role_name AS "roleName", department_id AS "department",
+           can_approve AS "canApprove", can_forward AS "canForward",
+           can_reject AS "canReject", level
+    FROM roles ORDER BY role_id`));
+
+  refill(users, await db.many(`
+    SELECT user_id AS "userId", name, department_id AS "department", role_id AS "roleId",
+           email, password_hash AS "password", active
+    FROM users ORDER BY user_id`));
+
+  refill(customers, await db.many(`
+    SELECT customer_id AS "customerId", name, type, region, segment,
+           business_line AS "businessLine", contact_person AS "contactPerson",
+           email, phone, city, state, gst_number AS "gstNumber",
+           is_key_account AS "isKeyAccount", sap_business_partner AS "sapBusinessPartner",
+           app_access AS "appAccess", active
+    FROM customers ORDER BY customer_id`));
+
+  refill(products, await db.many(`
+    SELECT product_id AS "productId", product_name AS "productName", category, uom,
+           business_line AS "businessLine", sap_material_no AS "sapMaterialNo", active
+    FROM products ORDER BY product_id`));
+
+  refill(sampleTypes, await db.many(`
+    SELECT sample_type_id AS "sampleTypeId", sample_type_name AS "sampleTypeName",
+           applicable_business_line AS "applicableBusinessLine",
+           default_required AS "defaultRequired"
+    FROM sample_types ORDER BY sample_type_id`));
+
+  refill(complaintTypes, await db.many(`
+    SELECT type_id AS "typeId", type_name AS "typeName", business_line AS "businessLine",
+           sample_required AS "sampleRequired", default_sample_type_id AS "defaultSampleType"
+    FROM complaint_types ORDER BY type_id`));
+
+  refill(salesPolicies, await db.many(`
+    SELECT policy_id AS "policyId", policy_name AS "policyName",
+           business_line AS "businessLine", applicable_segment AS "applicableSegment",
+           applicable_region AS "applicableRegion", max_settlement_pct AS "maxSettlementPct",
+           complaint_window_days AS "complaintWindowDays",
+           linked_discount_scheme AS "linkedDiscountScheme",
+           valid_from AS "validFrom", valid_to AS "validTo",
+           approval_override_on_breach AS "approvalOverrideOnBreach"
+    FROM sales_policies ORDER BY policy_id`));
+
+  const invRows = await db.many(`
+    SELECT invoice_number, to_char(invoice_date, 'YYYY-MM-DD') AS invoice_date,
+           sold_to_party, payment_terms, net_amount, currency
+    FROM invoices ORDER BY invoice_number`);
+  const itemRows = await db.many(`
+    SELECT invoice_number, invoice_item_no, sap_material_no, material_description,
+           billing_qty, uom, net_amount, unit_price
+    FROM invoice_line_items ORDER BY invoice_number, invoice_item_no`);
+
+  Object.keys(invoices).forEach((k) => delete invoices[k]);
+  for (const r of invRows) {
+    invoices[r.invoice_number] = {
+      BillingDocument:     r.invoice_number,
+      BillingDocumentDate: r.invoice_date,
+      SoldToParty:         r.sold_to_party,
+      PaymentTerms:        r.payment_terms,
+      NetAmount:           r.net_amount.toFixed(2),
+      TransactionCurrency: r.currency,
+      lineItems: [],
+    };
+  }
+  for (const it of itemRows) {
+    const inv = invoices[it.invoice_number];
+    if (!inv) continue;
+    inv.lineItems.push({
+      BillingDocumentItem:  it.invoice_item_no,
+      Material:             it.sap_material_no,
+      MaterialDescription:  it.material_description,
+      BillingQuantity:      it.billing_qty,
+      BillingQuantityUnit:  it.uom,
+      NetAmount:            it.net_amount.toFixed(2),
+      NetPriceAmount:       it.unit_price.toFixed(2),
+    });
+  }
+
+  loaded = true;
+  return {
+    customers: customers.length, users: users.length, roles: roles.length,
+    departments: departments.length, products: products.length,
+    invoices: Object.keys(invoices).length, complaintTypes: complaintTypes.length,
+    sampleTypes: sampleTypes.length, salesPolicies: salesPolicies.length,
+  };
+}
+
+function isLoaded() { return loaded; }
+
+function findCustomer(customerId) {
+  return customers.find((c) => c.customerId === customerId) || null;
+}
+
+function findProduct(sapMaterialNo) {
+  return products.find((p) => p.sapMaterialNo === sapMaterialNo) || null;
+}
+
+function findProductById(productId) {
+  return products.find((p) => p.productId === productId) || null;
+}
+
+function findComplaintType(typeId) {
+  return complaintTypes.find((c) => c.typeId === typeId) || null;
+}
+
+function findSampleType(sampleTypeId) {
+  return sampleTypes.find((s) => s.sampleTypeId === sampleTypeId) || null;
+}
+
+function findUser(userId) {
+  return users.find((u) => u.userId === userId) || null;
+}
+
+function findUserByEmail(email) {
+  if (!email) return null;
+  const target = String(email).toLowerCase();
+  return users.find((u) => u.email.toLowerCase() === target) || null;
+}
+
+function findRole(roleId) {
+  return roles.find((r) => r.roleId === roleId) || null;
+}
+
+function findApplicablePolicy(businessLine, customerSegment) {
+  return salesPolicies.find(
+    (p) =>
+      (p.businessLine === businessLine || p.businessLine === "Both") &&
+      p.applicableSegment === customerSegment
+  ) || null;
+}
+
+function checkPolicyCompliance(policy, invoiceDate, settlementValue, invoiceValue) {
+  if (!policy) return { compliant: true, flag: "No Policy Found", clauseBreached: null };
+
+  const invoiceDays = Math.floor((Date.now() - new Date(invoiceDate)) / 86400000);
+  if (invoiceDays > policy.complaintWindowDays) {
+    return {
+      compliant: false,
+      flag: "Breach",
+      clauseBreached: `Complaint filed ${invoiceDays} days after invoice; policy window is ${policy.complaintWindowDays} days`,
+      forcesMdApproval: policy.approvalOverrideOnBreach,
+    };
+  }
+
+  // The settlement % of invoice can only be assessed once SAP has confirmed the
+  // invoice value. On a manual / "pending SAP validation" complaint that value
+  // is 0, so skip the percentage check instead of dividing by zero (which showed
+  // "Settlement Infinity%"). It is re-assessed when the real invoice value lands.
+  if (invoiceValue > 0) {
+    const settlementPct = (settlementValue / invoiceValue) * 100;
+    if (settlementPct > policy.maxSettlementPct) {
+      return {
+        compliant: false,
+        flag: "Breach",
+        clauseBreached: `Settlement ${settlementPct.toFixed(1)}% of invoice exceeds policy ceiling of ${policy.maxSettlementPct}%`,
+        forcesMdApproval: policy.approvalOverrideOnBreach,
+      };
+    }
+  }
+
+  return { compliant: true, flag: "Within Policy", clauseBreached: null, forcesMdApproval: false };
+}
+
+module.exports = {
+  load, reload: load, isLoaded,
+  customers, users, roles, departments, products, invoices,
+  complaintTypes, sampleTypes, salesPolicies,
+  findCustomer, findProduct, findProductById,
+  findComplaintType, findSampleType, findUser,
+  findUserByEmail, findRole,
+  findApplicablePolicy, checkPolicyCompliance,
+};
