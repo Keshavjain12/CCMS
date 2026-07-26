@@ -55,7 +55,6 @@ CCMS.views.login = function (mount) {
       el("div.brand-logo-badge.lg", {}, [
         el("img.brand-logo-img", { src: "/assets/logo.png", alt: "CKA Birla Group — Orient Paper" }),
       ]),
-      el("p.login-brand-tag", { text: cfg.APP_TAGLINE }),
     ]),
     el("ul.hero-points", {}, [
       el("li", { text: "Role-based portals — TS, QC, Operations, Marketing, MD, Finance, Sales" }),
