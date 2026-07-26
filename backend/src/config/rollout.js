@@ -16,7 +16,7 @@
 
 require("dotenv").config();
 
-const ROLLOUT_PHASE = parseInt(process.env.ROLLOUT_PHASE || "1");
+const ROLLOUT_PHASE = parseInt(process.env.ROLLOUT_PHASE || "3");
 
 
 const PHASE_CONFIG = {
