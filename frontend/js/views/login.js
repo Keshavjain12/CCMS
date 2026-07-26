@@ -52,11 +52,10 @@ CCMS.views.login = function (mount) {
 
   const leftPanel = el("div.login-hero", {}, [
     el("div.login-brand", {}, [
-      el("span.brand-mark.lg", { text: "OPM" }),
-      el("div", {}, [
-        el("h1", { text: cfg.APP_NAME }),
-        el("p", { text: cfg.APP_TAGLINE }),
+      el("div.brand-logo-badge.lg", {}, [
+        el("img.brand-logo-img", { src: "/assets/logo.png", alt: "CKA Birla Group — Orient Paper" }),
       ]),
+      el("p.login-brand-tag", { text: cfg.APP_TAGLINE }),
     ]),
     el("ul.hero-points", {}, [
       el("li", { text: "Role-based portals — TS, QC, Operations, Marketing, MD, Finance, Sales" }),
@@ -67,8 +66,8 @@ CCMS.views.login = function (mount) {
   ]);
 
   const card = el("div.login-card", {}, [
-    el("h2", { text: "Sign in to your portal" }),
-    el("p.muted", { text: "Use your Orient Paper & Mill staff credentials." }),
+    el("h2", { text: "Orient Paper & Mill" }),
+    el("p.muted", { text: cfg.APP_TAGLINE }),
     form,
   ]);
 

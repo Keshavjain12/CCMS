@@ -55,7 +55,9 @@ CCMS.shell = (function () {
   function topbar(user, portal) {
     return el("header.topbar", {}, [
       el("div.brand", {}, [
-        el("span.brand-mark", { text: "OPM" }),
+        el("div.brand-logo-badge", {}, [
+          el("img.brand-logo-img", { src: "/assets/logo.png", alt: "Orient Paper" }),
+        ]),
         el("div.brand-text", {}, [
           el("strong", { text: "CCMS" }),
           el("small", { text: CCMS.config.APP_TAGLINE }),
