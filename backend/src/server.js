@@ -289,20 +289,39 @@ app.get("/api/audit-log/verify", authenticate, requireRoles(GLOBAL_VIEW_ROLES), 
 
 const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
 
-const DEMO_LOGINS = [
-  { label: "Admin",             role: "Full access — every stage",  email: "admin@orientpaper.com",          password: "Admin@456"  },
-  { label: "TS Officer",        role: "Logs complaints · TS Review", email: "priya.mehta@orientpaper.com",    password: "Orient@123" },
-  { label: "TS Head",           role: "TS Review",                  email: "kiran.joshi@orientpaper.com",     password: "Orient@123" },
-  { label: "QC Analyst",        role: "Samples · QC",               email: "amit.verma@orientpaper.com",      password: "Orient@123" },
-  { label: "QC Manager",        role: "QC Review",                  email: "neha.singh@orientpaper.com",      password: "Orient@123" },
-  { label: "Operations Analyst", role: "CAPA · Operations",         email: "rajesh.gupta@orientpaper.com",    password: "Orient@123" },
-  { label: "Operations Head",   role: "Ops Head Approval",          email: "sanjay.patel@orientpaper.com",    password: "Orient@123" },
-  { label: "Product Manager",   role: "Marketing Review",           email: "deepa.nair@orientpaper.com",      password: "Orient@123" },
-  { label: "Marketing Head",    role: "Marketing Head Approval",    email: "vikram.rao@orientpaper.com",      password: "Orient@123" },
-  { label: "Managing Director", role: "MD Approval",                email: "sumedha.iyer@orientpaper.com",    password: "Orient@123" },
-  { label: "Finance Officer",   role: "Credit note · closure",      email: "anand.kulkarni@orientpaper.com",  password: "Orient@123" },
-  { label: "Sales / KAM",       role: "Logs complaints · visits",   email: "mohan.das@orientpaper.com",       password: "Orient@123" },
-];
+// Quick-login accounts for the demo sign-in page, built at request time from
+// the seeded users — so no email is hard-coded in the (public) repo. Toggle
+// with SHOW_DEMO_LOGINS=false for a real production deployment.
+const DEMO_ROLE_LABEL = {
+  R000: "Admin",             R001: "TS Officer",        R002: "TS Head",
+  R003: "QC Analyst",        R004: "QC Manager",        R005: "Operations Analyst",
+  R006: "Operations Head",   R007: "Product Manager",   R008: "Marketing Head",
+  R009: "Managing Director", R010: "Finance Officer",   R011: "Sales / KAM",
+};
+const DEMO_ROLE_DESC = {
+  R000: "Full access · every stage", R001: "Logs complaints · TS Review",
+  R002: "TS Review",                 R003: "Samples · QC",
+  R004: "QC Review",                 R005: "CAPA · Operations",
+  R006: "Ops Head Approval",         R007: "Marketing Review",
+  R008: "Marketing Head Approval",   R009: "MD Approval",
+  R010: "Credit note · closure",     R011: "Logs complaints · visits",
+};
+const DEMO_ROLE_ORDER = ["R000","R001","R002","R003","R004","R005","R006","R007","R008","R009","R010","R011"];
+
+function buildDemoLogins() {
+  try {
+    const md = require("./data/masterData");
+    return (md.users || [])
+      .filter((u) => u.active && DEMO_ROLE_LABEL[u.roleId])
+      .sort((a, b) => DEMO_ROLE_ORDER.indexOf(a.roleId) - DEMO_ROLE_ORDER.indexOf(b.roleId))
+      .map((u) => ({
+        label:    DEMO_ROLE_LABEL[u.roleId],
+        role:     DEMO_ROLE_DESC[u.roleId] || "",
+        email:    u.email,
+        password: u.roleId === "R000" ? "Admin@456" : "Orient@123",
+      }));
+  } catch (_) { return []; }
+}
 
 app.get("/env/config.js", (req, res) => {
   const proto  = process.env.NODE_ENV === "production" ? "https" : req.protocol;
@@ -316,7 +335,7 @@ app.get("/env/config.js", (req, res) => {
       API_BASE_URL:       origin,
       APP_NAME:           "Orient Paper & Mill — CCMS",
       SHOW_DEMO_ACCOUNTS: showLogins,
-      DEMO_ACCOUNTS:      showLogins ? DEMO_LOGINS : [],
+      DEMO_ACCOUNTS:      showLogins ? buildDemoLogins() : [],
     }) +
     ");"
   );
