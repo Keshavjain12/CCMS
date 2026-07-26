@@ -298,12 +298,17 @@ const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
 // git-ignored env/config.js needs to exist on the server. Registered before
 // express.static so it always wins.
 app.get("/env/config.js", (req, res) => {
+  // Absolute same-origin base URL, built from the request. Must be a truthy
+  // string — the SPA config treats "" as "unset" and falls back to localhost.
+  const proto  = process.env.NODE_ENV === "production" ? "https" : req.protocol;
+  const origin = `${proto}://${req.get("host")}`;
+  res.set("Cache-Control", "no-store");
   res.type("application/javascript").send(
-    'window.CCMS_ENV = Object.freeze({ ' +
-    'API_BASE_URL: "", ' +
+    "window.CCMS_ENV = Object.freeze({ " +
+    "API_BASE_URL: " + JSON.stringify(origin) + ", " +
     'APP_NAME: "Orient Paper & Mill — CCMS", ' +
-    'SHOW_DEMO_ACCOUNTS: false, ' +
-    'DEMO_ACCOUNTS: [] });'
+    "SHOW_DEMO_ACCOUNTS: false, " +
+    "DEMO_ACCOUNTS: [] });"
   );
 });
 
