@@ -287,19 +287,8 @@ app.get("/api/audit-log/verify", authenticate, requireRoles(GLOBAL_VIEW_ROLES), 
   }
 });
 
-// ── Serve the frontend (single-service deploy) ────────────────────────────
-// The API also serves the static SPA, so the whole app runs from one origin
-// in production — no CORS or cross-domain cookie config needed. In local dev
-// the frontend is usually served separately by frontend/serve.js; this block
-// is harmless there.
 const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
 
-// Hand the SPA a same-origin runtime config (API on the same host), so no
-// git-ignored env/config.js needs to exist on the server. Registered before
-// express.static so it always wins.
-// Clickable quick-logins on the sign-in page — a demo convenience. Enable/disable
-// with SHOW_DEMO_LOGINS (default on for this hosted demo). These are the seeded
-// sandbox accounts; turn off for a real production deployment.
 const DEMO_LOGINS = [
   { label: "Admin",             role: "Full access — every stage",  email: "admin@orientpaper.com",          password: "Admin@456"  },
   { label: "TS Officer",        role: "Logs complaints · TS Review", email: "priya.mehta@orientpaper.com",    password: "Orient@123" },
@@ -316,8 +305,6 @@ const DEMO_LOGINS = [
 ];
 
 app.get("/env/config.js", (req, res) => {
-  // Absolute same-origin base URL, built from the request. Must be a truthy
-  // string — the SPA config treats "" as "unset" and falls back to localhost.
   const proto  = process.env.NODE_ENV === "production" ? "https" : req.protocol;
   const origin = `${proto}://${req.get("host")}`;
   const showLogins = process.env.SHOW_DEMO_LOGINS !== "false";
@@ -335,10 +322,14 @@ app.get("/env/config.js", (req, res) => {
   );
 });
 
-app.use(express.static(FRONTEND_DIR));
+app.use(express.static(FRONTEND_DIR, {
+  setHeaders(res, filePath) {
+    // Always revalidate the app shell so deploys show up without a manual cache
+    // clear (ETag makes this a cheap 304 when nothing changed).
+    if (/\.(html|css|js)$/i.test(filePath)) res.set("Cache-Control", "no-cache");
+  },
+}));
 
-// Hash-routed SPA: any non-API GET that isn't a real file falls back to
-// index.html. /api/* is excluded so unknown API routes still 404 as JSON.
 app.get(/^\/(?!api(?:\/|$)).*/, (req, res, next) => {
   res.sendFile(path.join(FRONTEND_DIR, "index.html"), (err) => err && next());
 });
