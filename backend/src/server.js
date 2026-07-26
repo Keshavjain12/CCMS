@@ -297,18 +297,41 @@ const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
 // Hand the SPA a same-origin runtime config (API on the same host), so no
 // git-ignored env/config.js needs to exist on the server. Registered before
 // express.static so it always wins.
+// Clickable quick-logins on the sign-in page — a demo convenience. Enable/disable
+// with SHOW_DEMO_LOGINS (default on for this hosted demo). These are the seeded
+// sandbox accounts; turn off for a real production deployment.
+const DEMO_LOGINS = [
+  { label: "Admin",             role: "Full access — every stage",  email: "admin@orientpaper.com",          password: "Admin@456"  },
+  { label: "TS Officer",        role: "Logs complaints · TS Review", email: "priya.mehta@orientpaper.com",    password: "Orient@123" },
+  { label: "TS Head",           role: "TS Review",                  email: "kiran.joshi@orientpaper.com",     password: "Orient@123" },
+  { label: "QC Analyst",        role: "Samples · QC",               email: "amit.verma@orientpaper.com",      password: "Orient@123" },
+  { label: "QC Manager",        role: "QC Review",                  email: "neha.singh@orientpaper.com",      password: "Orient@123" },
+  { label: "Operations Analyst", role: "CAPA · Operations",         email: "rajesh.gupta@orientpaper.com",    password: "Orient@123" },
+  { label: "Operations Head",   role: "Ops Head Approval",          email: "sanjay.patel@orientpaper.com",    password: "Orient@123" },
+  { label: "Product Manager",   role: "Marketing Review",           email: "deepa.nair@orientpaper.com",      password: "Orient@123" },
+  { label: "Marketing Head",    role: "Marketing Head Approval",    email: "vikram.rao@orientpaper.com",      password: "Orient@123" },
+  { label: "Managing Director", role: "MD Approval",                email: "sumedha.iyer@orientpaper.com",    password: "Orient@123" },
+  { label: "Finance Officer",   role: "Credit note · closure",      email: "anand.kulkarni@orientpaper.com",  password: "Orient@123" },
+  { label: "Sales / KAM",       role: "Logs complaints · visits",   email: "mohan.das@orientpaper.com",       password: "Orient@123" },
+];
+
 app.get("/env/config.js", (req, res) => {
   // Absolute same-origin base URL, built from the request. Must be a truthy
   // string — the SPA config treats "" as "unset" and falls back to localhost.
   const proto  = process.env.NODE_ENV === "production" ? "https" : req.protocol;
   const origin = `${proto}://${req.get("host")}`;
+  const showLogins = process.env.SHOW_DEMO_LOGINS !== "false";
   res.set("Cache-Control", "no-store");
-  res.type("application/javascript").send(
-    "window.CCMS_ENV = Object.freeze({ " +
-    "API_BASE_URL: " + JSON.stringify(origin) + ", " +
-    'APP_NAME: "Orient Paper & Mill — CCMS", ' +
-    "SHOW_DEMO_ACCOUNTS: false, " +
-    "DEMO_ACCOUNTS: [] });"
+  res.set("Content-Type", "application/javascript; charset=utf-8");
+  res.send(
+    "window.CCMS_ENV = Object.freeze(" +
+    JSON.stringify({
+      API_BASE_URL:       origin,
+      APP_NAME:           "Orient Paper & Mill — CCMS",
+      SHOW_DEMO_ACCOUNTS: showLogins,
+      DEMO_ACCOUNTS:      showLogins ? DEMO_LOGINS : [],
+    }) +
+    ");"
   );
 });
 
