@@ -2,6 +2,12 @@
 ## Customer Complaint Management System — Orient Paper & Mill
 ### Complaint Transaction + SAP S/4HANA Data Push · `backend/` + `frontend/`
 
+### 🔗 Live demo — **https://ccms-6dut.onrender.com**
+
+Sign in with the **demo-account buttons** on the login page (one click per role), or
+as `admin@orientpaper.com` / `Admin@456`. It's hosted on a free tier, so the first
+request may take **~50 seconds** to wake the server — give it a moment.
+
 ---
 
 ## What This System Does
