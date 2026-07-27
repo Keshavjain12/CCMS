@@ -73,7 +73,7 @@ const ROUTE_PERMISSIONS = {
 
   manageCapa:         ["R005", "R006"],
 
-  manageVisits:       ["R010", "R011"],
+  manageVisits:       ["R001", "R002"],
 
   creditNote:         ["R010"],
 

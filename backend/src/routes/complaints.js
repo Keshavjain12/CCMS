@@ -512,6 +512,24 @@ router.post("/:complaintNo/attachments", async (req, res) => {
     });
   }
 
+  const lineItemId = req.body.lineItemId || null;
+  if (lineItemId) {
+    const items = await lineItemStore.getForComplaint(complaint.complaintNo);
+    const match = items.find(item => item.lineItemId === lineItemId);
+    if (!match) {
+      return res.status(400).json({ error: `Line item '${lineItemId}' does not belong to complaint '${complaint.complaintNo}'.` });
+    }
+
+    const fileType = req.body.fileType || "photo";
+    if (fileType === "photo") {
+      const existing = await attachmentStore.getForLineItem(lineItemId);
+      const photoCount = existing.filter(a => a.fileType === "photo" && !a.purged).length;
+      if (photoCount >= 5) {
+        return res.status(400).json({ error: "A line item cannot have more than 5 images." });
+      }
+    }
+  }
+
   const att = await attachmentStore.create({
     complaintNo: complaint.complaintNo,
     ...req.body,
@@ -542,6 +560,24 @@ router.post(
     if (!fileStore.EXT_BY_TYPE[fileType]) {
       return res.status(400).json({ error: `Invalid fileType. Valid: ${Object.keys(fileStore.EXT_BY_TYPE).join(", ")}` });
     }
+
+    const lineItemId = req.query.lineItemId || null;
+    if (lineItemId) {
+      const items = await lineItemStore.getForComplaint(complaint.complaintNo);
+      const match = items.find(item => item.lineItemId === lineItemId);
+      if (!match) {
+        return res.status(400).json({ error: `Line item '${lineItemId}' does not belong to complaint '${complaint.complaintNo}'.` });
+      }
+
+      if (fileType === "photo") {
+        const existing = await attachmentStore.getForLineItem(lineItemId);
+        const photoCount = existing.filter(a => a.fileType === "photo" && !a.purged).length;
+        if (photoCount >= 5) {
+          return res.status(400).json({ error: "A line item cannot have more than 5 images." });
+        }
+      }
+    }
+
     const buf = Buffer.isBuffer(req.body) ? req.body : null;
     if (!buf || !buf.length) {
       return res.status(400).json({ error: "Empty upload — send the file bytes as the request body (Content-Type must not be application/json)." });
@@ -553,6 +589,7 @@ router.post(
 
     const att = await attachmentStore.create({
       complaintNo:   complaint.complaintNo,
+      lineItemId,
       fileReference: storedName,
       fileType,
       description:   req.query.description ? String(req.query.description) : fileName,
@@ -656,9 +693,16 @@ router.put("/:complaintNo/samples/:sampleId", requireRoles(["R003","R004"]), asy
   res.json({ success: true, sample });
 });
 
-router.post("/:complaintNo/visits", requireRoles(["R010","R011"]), async (req, res) => {
+router.post("/:complaintNo/visits", requireRoles(["R001","R002"]), async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
+
+  const unapprovedStatuses = ["Draft", "Logged", "TS_Review"];
+  if (unapprovedStatuses.includes(complaint.status)) {
+    return res.status(403).json({
+      error: "Visits can only be managed after the complaint has been approved by the TS Head."
+    });
+  }
 
   const isMandatory = workflow.requiresVisit(complaint);
   const visit = await visitStore.create({
@@ -683,9 +727,16 @@ router.post("/:complaintNo/visits", requireRoles(["R010","R011"]), async (req, r
   res.status(201).json({ success: true, visit });
 });
 
-router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), async (req, res) => {
+router.put("/:complaintNo/visits/:visitId", requireRoles(["R001","R002"]), async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
+
+  const unapprovedStatuses = ["Draft", "Logged", "TS_Review"];
+  if (unapprovedStatuses.includes(complaint.status)) {
+    return res.status(403).json({
+      error: "Visits can only be managed after the complaint has been approved by the TS Head."
+    });
+  }
 
   const { visitStatus, visitDate, findings, customerAcknowledgement, outcome } = req.body;
 
@@ -717,9 +768,16 @@ router.put("/:complaintNo/visits/:visitId", requireRoles(["R010","R011"]), async
   res.json({ success: true, visit });
 });
 
-router.delete("/:complaintNo/visits/:visitId", requireRoles(["R010", "R011"]), async (req, res) => {
+router.delete("/:complaintNo/visits/:visitId", requireRoles(["R001", "R002"]), async (req, res) => {
   const complaint = await complaintStore.getByNo(req.params.complaintNo);
   if (!complaint) return res.status(404).json({ error: "Complaint not found" });
+
+  const unapprovedStatuses = ["Draft", "Logged", "TS_Review"];
+  if (unapprovedStatuses.includes(complaint.status)) {
+    return res.status(403).json({
+      error: "Visits can only be managed after the complaint has been approved by the TS Head."
+    });
+  }
 
   const visit = await visitStore.getById(req.params.visitId);
 

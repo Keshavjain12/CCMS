@@ -191,12 +191,70 @@ CCMS.views.createComplaint = async function (mount) {
     function recompute() { valOut.textContent = money((parseFloat(price.value) || 0) * (parseFloat(defQty.value) || 0)); }
     [price, defQty].forEach((n) => n.addEventListener("input", recompute));
 
+    // Local state for storing selected image files for this row
+    const selectedImages = [];
+    const previewsHost = el("div.preview-thumbnails");
+
+    const fileInput = el("input.file-upload-input", {
+      type: "file",
+      multiple: "true",
+      accept: "image/*"
+    });
+    const uploadLabel = el("label.file-upload-btn-label", {
+      text: "📷 Add Images (Max 5)"
+    }, [
+      fileInput
+    ]);
+
+    fileInput.addEventListener("change", (e) => {
+      const files = Array.from(e.target.files || []);
+      if (selectedImages.length + files.length > 5) {
+        toast("You can only upload up to 5 images per line item.", "error");
+        const remaining = 5 - selectedImages.length;
+        files.splice(remaining);
+      }
+
+      files.forEach((file) => {
+        if (!file.type.startsWith("image/")) {
+          toast("Only image files are allowed.", "error");
+          return;
+        }
+        selectedImages.push(file);
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const thumbImg = el("img.thumbnail-img", { src: evt.target.result, alt: file.name });
+          const removeBtn = el("button.thumbnail-remove", {
+            type: "button",
+            text: "✕",
+            onClick: (event) => {
+              event.stopPropagation();
+              event.preventDefault();
+              const idx = selectedImages.indexOf(file);
+              if (idx !== -1) selectedImages.splice(idx, 1);
+              container.remove();
+            }
+          });
+          const container = el("div.thumbnail-container", {}, [thumbImg, removeBtn]);
+          previewsHost.appendChild(container);
+        };
+        reader.readAsDataURL(file);
+      });
+      fileInput.value = "";
+    });
+
+    const uploadSection = el("div.file-upload-section", {}, [
+      el("div.file-upload-input-container", {}, [uploadLabel]),
+      previewsHost
+    ]);
+
     const row = el("div.li-row", {}, [
       el("div.li-grid", {}, [
         field("Item #", itemNo), field("Material", mat), field("Product", name, "wide"),
         field("Inv qty", invQty), field("Unit price", price), field("Defective qty", defQty),
         field("UoM", uom), field("Type", typeSel, "wide"),
       ]),
+      uploadSection,
       el("div.li-foot", {}, [
         el("span.muted", { text: "Defective value: " }), valOut,
         el("button.btn.btn-xs.btn-ghost", { text: "Remove", onClick: () => row.remove() }),
@@ -212,6 +270,7 @@ CCMS.views.createComplaint = async function (mount) {
       uom: uom.value || undefined,
       complaintTypeId: typeSel.value || undefined,
     });
+    row._getImages = () => selectedImages;
     lineItemsHost.appendChild(row);
     recompute();
   }
@@ -220,9 +279,51 @@ CCMS.views.createComplaint = async function (mount) {
     return el("label.mini-field" + (cls ? "." + cls : ""), {}, [el("span", { text: label }), node]);
   }
 
+  async function uploadFile(complaintNo, lineItemId, file) {
+    const url = CCMS.config.API_BASE_URL +
+      "/api/complaints/" + encodeURIComponent(complaintNo) +
+      "/attachments/upload?lineItemId=" + encodeURIComponent(lineItemId) +
+      "&fileType=photo&fileName=" + encodeURIComponent(file.name) +
+      "&description=" + encodeURIComponent(file.name);
+
+    const headers = {};
+    const token = CCMS.auth.token();
+    if (token) {
+      headers["Authorization"] = "Bearer " + token;
+    }
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: file,
+      credentials: "include"
+    });
+
+    if (!res.ok) {
+      let msg = "Upload failed";
+      try {
+        const data = await res.json();
+        msg = data.error || data.message || msg;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    return await res.json();
+  }
+
   function submit() {
-    const items = Array.prototype.map.call(lineItemsHost.querySelectorAll(".li-row"), (r) => r._collect())
+    const rows = Array.from(lineItemsHost.querySelectorAll(".li-row"));
+    const items = rows.map((r) => r._collect())
       .filter((x) => x.complaintTypeId && x.defectiveQty > 0);
+
+    const itemsWithFiles = rows.map((r) => {
+      const col = r._collect();
+      const isValid = col.complaintTypeId && col.defectiveQty > 0;
+      return {
+        item: col,
+        files: r._getImages ? r._getImages() : [],
+        isValid
+      };
+    }).filter((x) => x.isValid);
 
     if (!invInput.value.trim()) return fieldError(invInput, "An invoice number is required.");
     clearFieldError(invInput);
@@ -235,6 +336,11 @@ CCMS.views.createComplaint = async function (mount) {
       return;
     }
     CCMS.ui.clear(liError);
+
+    let totalFiles = 0;
+    itemsWithFiles.forEach((item) => {
+      totalFiles += item.files.length;
+    });
 
     return CCMS.ui.runAsync(submitBtn, async () => {
       try {
@@ -252,6 +358,47 @@ CCMS.views.createComplaint = async function (mount) {
         if (res.complaint && res.complaint.sapValidationPending) {
           toast("Filed with “Pending SAP Validation” — Finance will verify the invoice.", "info");
         }
+
+        if (totalFiles > 0) {
+          const createdItems = res.complaint.lineItems || [];
+          const progressBar = el("div.upload-progress-bar");
+          const progressText = el("p", { text: "Uploading images: 0 of " + totalFiles });
+          const uploadModal = el("div.upload-progress-overlay", {}, [
+            el("div.upload-progress-card", {}, [
+              el("h3", { text: "Uploading Complaint Images" }),
+              el("p.muted.sm", { text: "Please wait while we upload the files to the server..." }),
+              el("div.upload-progress-bar-container", {}, [progressBar]),
+              progressText
+            ])
+          ]);
+          document.body.appendChild(uploadModal);
+
+          try {
+            let uploadedCount = 0;
+            for (let i = 0; i < itemsWithFiles.length; i++) {
+              const files = itemsWithFiles[i].files;
+              if (!files.length) continue;
+
+              const createdItem = createdItems[i];
+              if (!createdItem || !createdItem.lineItemId) continue;
+
+              for (let f = 0; f < files.length; f++) {
+                const file = files[f];
+                progressText.textContent = "Uploading file " + (uploadedCount + 1) + " of " + totalFiles + ": " + file.name;
+                try {
+                  await uploadFile(cno, createdItem.lineItemId, file);
+                } catch (uploadErr) {
+                  toast("Failed to upload " + file.name + ": " + uploadErr.message, "error");
+                }
+                uploadedCount++;
+                progressBar.style.width = Math.round((uploadedCount / totalFiles) * 100) + "%";
+              }
+            }
+          } finally {
+            uploadModal.remove();
+          }
+        }
+
         CCMS.router.go("#/complaints/" + cno);
       } catch (err) {
         CCMS.ui.errorToast(err);

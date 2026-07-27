@@ -181,7 +181,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
 
   function isQC()      { return ["R000", "R003", "R004"].includes(user.roleId); }
   function isOps()     { return ["R000", "R005", "R006"].includes(user.roleId); }
-  function isVisitRole(){ return ["R000", "R010", "R011"].includes(user.roleId); }
+  function isVisitRole(){ return ["R000", "R001", "R002"].includes(user.roleId); }
   function isFinance() { return ["R000", "R010"].includes(user.roleId); }
 
   function fact(label, value) {
@@ -232,8 +232,27 @@ CCMS.views.complaintDetail = async function (mount, params) {
     ])));
     const tb = el("tbody");
     (c.lineItems || []).forEach((li) => {
+      const itemAttachments = (c.attachments || []).filter(
+        (a) => a.lineItemId === li.lineItemId && a.fileType === "photo" && !a.purged
+      );
+
       tb.appendChild(el("tr", {}, [
-        el("td", {}, [el("strong", { text: li.productName || li.sapMaterialNo || "—" }), el("small.muted", { text: " " + (li.sapMaterialNo || "") })]),
+        el("td", {}, [
+          el("strong", { text: li.productName || li.sapMaterialNo || "—" }),
+          el("small.muted", { text: " " + (li.sapMaterialNo || "") }),
+          itemAttachments.length
+            ? el("div.li-images", {}, itemAttachments.map((a) => {
+                const url = CCMS.config.API_BASE_URL + "/api/complaints/" + encodeURIComponent(c.complaintNo) + "/attachments/" + encodeURIComponent(a.attachmentId) + "/file";
+                return el("a.li-image-link", {
+                  href: url,
+                  target: "_blank",
+                  title: a.description || "View Image"
+                }, [
+                  el("img.li-image-thumb", { src: url, alt: a.description || "Image" })
+                ]);
+              }))
+            : null
+        ]),
         el("td", { text: li.complaintTypeName || li.complaintTypeId || "—" }),
         el("td.num", { text: (li.invoiceQty != null ? li.invoiceQty : "—") + " " + (li.uom || "") }),
         el("td.num", { text: String(li.defectiveQty != null ? li.defectiveQty : "—") }),
@@ -290,9 +309,10 @@ CCMS.views.complaintDetail = async function (mount, params) {
   }
 
   function visitsCard(c) {
+    const isApprovedByTs = !["Draft", "Logged", "TS_Review"].includes(c.status);
     const card = el("div.card", {}, [el("div.card-head", {}, [
       el("h3", { text: "Customer visits" }),
-      isVisitRole() && !terminalStatus(c) ? el("button.btn.btn-sm.btn-primary", { text: "+ Schedule visit", onClick: () => visitForm(c) }) : null,
+      isVisitRole() && isApprovedByTs && !terminalStatus(c) ? el("button.btn.btn-sm.btn-primary", { text: "+ Schedule visit", onClick: () => visitForm(c) }) : null,
     ])]);
     if (!(c.visits || []).length) { card.appendChild(CCMS.ui.empty("No visit scheduled.")); return card; }
     (c.visits || []).forEach((v) => {
@@ -304,7 +324,7 @@ CCMS.views.complaintDetail = async function (mount, params) {
         el("div.sub-meta", { text: "Scheduled: " + dateOnly(v.scheduledDate) + " · Assigned: " + (v.assignedTo || "—") +
           (v.outcome ? " · Outcome: " + v.outcome : "") }),
         v.findings ? kv("Findings", v.findings) : null,
-        isVisitRole() && v.visitStatus !== "Completed" && !terminalStatus(c)
+        isVisitRole() && isApprovedByTs && v.visitStatus !== "Completed" && !terminalStatus(c)
           ? el("div.sub-actions", {}, [
               el("button.btn.btn-xs.btn-ghost", { text: "Record outcome", onClick: () => visitUpdateForm(c, v) }),
 
@@ -340,10 +360,14 @@ CCMS.views.complaintDetail = async function (mount, params) {
   }
 
   function attachmentsCard(c) {
-    const card = el("div.card", {}, [el("div.card-head", {}, [el("h3", { text: "Attachments" })])]);
+    const card = el("div.card", {}, [el("div.card-head", {}, [el("h3", { text: "Attachments (" + (c.attachments || []).length + ")" })])]);
+    if (!(c.attachments || []).length) { card.appendChild(CCMS.ui.empty("No attachments.")); return card; }
     (c.attachments || []).forEach((a) => {
+      const url = CCMS.config.API_BASE_URL + "/api/complaints/" + encodeURIComponent(c.complaintNo) + "/attachments/" + encodeURIComponent(a.attachmentId) + "/file";
       card.appendChild(el("div.sub-item.compact", {}, [
-        el("strong", { text: a.fileType || "file" }),
+        el("strong", {}, [
+          el("a", { href: url, target: "_blank", text: a.fileType || "file" })
+        ]),
         el("small.muted", { text: " " + (a.description || a.fileReference || "") }),
       ]));
     });

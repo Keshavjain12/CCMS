@@ -20,7 +20,7 @@ CCMS.roles = (function () {
     createComplaint: ["R000", "R001", "R002", "R011"],
     manageSamples:   ["R000", "R003", "R004"],
     manageCapa:      ["R000", "R005", "R006"],
-    manageVisits:    ["R000", "R010", "R011"],
+    manageVisits:    ["R000", "R001", "R002"],
     creditNote:      ["R000", "R010"],
     masterDataWrite: ["R000"],
   };

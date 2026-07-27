@@ -19,7 +19,7 @@ const crypto = require("crypto");
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR
   ? path.resolve(process.env.UPLOAD_DIR)
-  : path.join(__dirname, "..", "..", "uploads");
+  : path.join(require("os").homedir(), "ccms_uploads");
 
 
 const MAX_BYTES = parseInt(process.env.UPLOAD_MAX_BYTES || String(5 * 1024 * 1024), 10);
