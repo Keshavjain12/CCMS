@@ -76,7 +76,7 @@ A request must pass all three.
 |---|---|
 | Samples | `R003` QC Analyst, `R004` QC Manager |
 | CAPA | `R005` Ops Analyst, `R006` Ops Head |
-| Visits | `R010` Finance, `R011` Sales/KAM |
+| Visits | `R001` TS Officer, `R002` TS Head |
 | Credit note | `R010` Finance |
 | Archive, rollout, SAP sync | `R000` Admin |
 | Global audit log, notifications, SLA board | `R000` Admin, `R009` MD |
@@ -186,6 +186,7 @@ site issue authenticated calls.
 | SQL injection | Parameterised queries throughout; the one interpolated identifier (`CREATE DATABASE` in `db/init.js`) is quote-escaped |
 | Security headers | helmet |
 | Attribution | `actorId` comes from the JWT, never the request body |
+| File Upload Safety | Whitelist verification of file extensions, size cap (5MB), path traversal protection, stored outside codebase in home folder (`~/ccms_uploads`), protected by authentication middleware and strict visibility checks (`denyIfHidden`) |
 
 ---
 

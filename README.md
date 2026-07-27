@@ -24,7 +24,7 @@ This is the complete backend for the Orient Paper & Mill CCMS — built exactly 
 | **SAP Integration** | All 6 touchpoints from Section 11.1 — real-time invoice lookup, nightly master data batch sync, Credit Note push and writeback |
 | **Workflow Engine** | 13-status state machine (Section 8) with universal transition rule |
 | **Sample Tracking** | Section 6 — physical sample lifecycle with QC gate |
-| **Customer Visits** | Section 7 — mandatory/optional visit records with outcome tracking |
+| **Customer Visits** | Section 7 — mandatory/optional visit records with outcome tracking (restricted to TS Officer/Head after TS Head approval) |
 | **CAPA** | Corrective & Preventive Action documentation by Operations |
 | **Audit Log** | Immutable, append-only log of every human and system action (Section 12.6) |
 | **Sales Policy** | Section 9 — policy compliance check at Stage 1; policy breach triggers MD approval |

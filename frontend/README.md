@@ -76,13 +76,13 @@ UI mirror is purely for UX — it never grants access on its own.
 | Role | Portal | Can do (beyond viewing) |
 |---|---|---|
 | Admin (R000) | Admin Console | Everything + master data, SAP sync, rollout, archive |
-| TS Officer / Head (R001/R002) | Technical Services | Create complaints; TS Head approves `TS_Review` |
+| TS Officer / Head (R001/R002) | Technical Services | Create complaints; TS Head approves `TS_Review`; schedule / record visits (after TS Head approval) |
 | QC Analyst / Manager (R003/R004) | Quality Control | Samples; approve `QC_Review` (sample gate) |
 | Operations Analyst / Head (R005/R006) | Operations | Document CAPA; Ops Head approves |
 | Product Manager / Marketing Head (R007/R008) | Marketing | Marketing review / approval |
 | Managing Director (R009) | MD Office | MD approval (high value / policy breach) |
 | Finance Officer (R010) | Finance | Raise SAP credit note; approve to Closed |
-| Sales / KAM (R011) | Sales | Create complaints; schedule / record visits |
+| Sales / KAM (R011) | Sales | Create complaints |
 
 ---
 

@@ -97,8 +97,21 @@ The universal workflow transition.
 Add a line item. Recomputes settlement and re-evaluates the MD/visit gates.
 
 ### `POST /api/complaints/:complaintNo/attachments`
-Attach a file reference (`fileReference`, `fileType`, `description`).
-Metadata only — there is no upload endpoint yet.
+Attach a file reference metadata (`fileReference`, `fileType`, `description`).
+
+### `POST /api/complaints/:complaintNo/attachments/upload`
+Upload an attachment file as raw binary bytes.
+* **Query Params**:
+  * `fileType` (e.g. `photo`, `video`, `document`)
+  * `fileName` (filename of the uploaded file)
+  * `description` (optional description)
+  * `lineItemId` (optional UUID of the target line item — strictly capped at a max of 5 images/photos per line item)
+* **Auth required**: Yes (enforces JWT + complaint visibility filters).
+* **Storage Location**: Stored securely in `~/ccms_uploads` (outside the code repository folder).
+
+### `GET /api/complaints/:complaintNo/attachments/:attachmentId/file`
+Download/view a stored attachment file.
+* **Auth required**: Yes (enforces JWT + complaint visibility filters).
 
 ### `GET /api/complaints/:complaintNo/audit-log`
 This complaint's trail, newest first.
@@ -126,17 +139,23 @@ resolved.
 `Awaited → Received → Under Testing → Tested → Disposed`. Reaching `Received`
 opens the QC gate. A non-`Awaited` status requires `receivedDate`.
 
-### `POST /api/complaints/:complaintNo/visits` — `R010`, `R011`
+### `POST /api/complaints/:complaintNo/visits` — `R001`, `R002`
 ```json
 { "visitType": "Mandatory", "scheduledDate": "2026-07-15", "assignedTo": "U011" }
 ```
+*Allowed only after the complaint is approved by the TS Head (i.e. status progresses past `TS_Review`).*
 
-### `PUT /api/complaints/:complaintNo/visits/:visitId` — `R010`, `R011`
+### `PUT /api/complaints/:complaintNo/visits/:visitId` — `R001`, `R002`
 ```json
 { "visitStatus": "Completed", "visitDate": "2026-07-15",
   "findings": "3 of 5 drums confirmed contaminated",
   "outcome": "Resolved On-Site", "customerAcknowledgement": "OTP-verified" }
 ```
+*Allowed only after the complaint is approved by the TS Head (i.e. status progresses past `TS_Review`).*
+
+### `DELETE /api/complaints/:complaintNo/visits/:visitId` — `R001`, `R002`
+Delete a scheduled visit (only if no work/outcome has been recorded on it yet).
+*Allowed only after the complaint is approved by the TS Head (i.e. status progresses past `TS_Review`).*
 `outcome` ∈ `Resolved On-Site` | `Escalation Confirmed` | `No Further Action`.
 
 ### `POST /api/complaints/:complaintNo/capa` — `R005`, `R006`
