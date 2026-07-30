@@ -290,8 +290,8 @@ app.get("/api/audit-log/verify", authenticate, requireRoles(GLOBAL_VIEW_ROLES), 
 const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
 
 // Quick-login accounts for the demo sign-in page, built at request time from
-// the seeded users — so no email is hard-coded in the (public) repo. Toggle
-// with SHOW_DEMO_LOGINS=false for a real production deployment.
+// the seeded users — so no email is hard-coded in the (public) repo. Hidden by
+// default on hosted; set SHOW_DEMO_LOGINS=true to expose them for a private demo.
 const DEMO_ROLE_LABEL = {
   R000: "Admin",             R001: "TS Officer",        R002: "TS Head",
   R003: "QC Analyst",        R004: "QC Manager",        R005: "Operations Analyst",
@@ -326,7 +326,10 @@ function buildDemoLogins() {
 app.get("/env/config.js", (req, res) => {
   const proto  = process.env.NODE_ENV === "production" ? "https" : req.protocol;
   const origin = `${proto}://${req.get("host")}`;
-  const showLogins = process.env.SHOW_DEMO_LOGINS !== "false";
+  // Default OFF so the public hosted URL never lists real account emails/passwords.
+  // Opt in with SHOW_DEMO_LOGINS=true for a private demo. Local dev serves the
+  // static frontend/env/config.js instead, so quick-logins still show there.
+  const showLogins = process.env.SHOW_DEMO_LOGINS === "true";
   res.set("Cache-Control", "no-store");
   res.set("Content-Type", "application/javascript; charset=utf-8");
   res.send(
